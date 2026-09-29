@@ -1,33 +1,80 @@
-# Branch Integration Review
+# Developer 3 Integration Review
 
-Integration target: `main`, combining Developer 1 (`origin/alina`), Developer 3 (`origin/rishav`), and Developer 2's previously merged backend. The `origin/security-fixes` commits are already ancestors of Developer 1's branch; they were reviewed and corrected there, so the standalone branch is not merged a second time.
+## Exact clean-terminal failure
 
-## What arrived
+Command:
 
-- `origin/alina`: deterministic PoS pseudo-VRF, signed event state machine, manifest-anchored genesis, PoA authority transitions, node persistence, real NodeService adapter, networking, and regression tests.
-- `origin/rishav`: dated Windows verification notes and a runtime signalling config. It contains no React source or browser tests.
-
-## Integration fixes
-
-- Signed room manifests now carry an explicit reserved `stake` for every genesis allocation. The genesis hash commits the complete validator registry; live validation and chain synchronization both require the exact set and amounts. Gossip cannot alter this room registry. Existing room manifests without the new field need a fresh room and data directory; persisted format version 2 alone does not migrate them.
-- Room WebSocket admission now requires a signed response to a fresh per-connection challenge. Peer-info keys must match the authenticated socket key.
-- Finalized PoS blocks cannot be replaced by a longer fork.
-- Double-sign evidence is persisted alongside each node's chain and revalidated on restart and peer synchronization, so a penalty is not silently lost.
-- AgentGuard job details and commands are scoped to the active room. Rejected events are removed from the read model, and the current room's projection is rebuilt from node-accepted events on join.
-- Added the explicit `python -m api --config ...` node/API launcher, continuous signalling membership refresh, and corrected connected-peer reporting.
-- Removed a committed, machine-specific signalling configuration and corrected README clone/run instructions and production claims.
-
-## Verification and remaining release gate
-
-Run the project suite with a Python 3.12 virtual environment and declared requirements:
-
-```bash
-python -m pytest -q tests
-python -m unittest discover -s tests -p 'test_*.py'
-python -m compileall -q agentguard api consensus signalling smart_contract storage
-git diff --check
+```powershell
+python --version
 ```
 
-Results on the merged integration checkout: `129 passed` for pytest; the documented unittest discovery command passed its 18 unittest cases; `compileall` and `git diff --check` passed. The pytest run includes real three-node WebSocket convergence, finality, room transition, replay, and restart tests on dynamic ports and temporary storage.
+Output:
 
-The React dashboard and browser acceptance screenshots are still missing because neither teammate branch contains a `frontend/` project. Do not claim the mandatory web-interface requirement is complete. The Python contract executor remains an educational restricted process, not a production security boundary. Room validator weights are immutable until a signed stake-change transition is implemented. The PoS proof is a deterministic educational pseudo-VRF with publicly computable output. The lottery may have an epoch with no winner; production-grade liveness is not established.
+```text
+python: The term 'python' is not recognized as a name of a cmdlet, function, script file, or executable program.
+```
+
+The integrated run continued with a repository-local `.venv` created from the available Python runtime. The documented `python` command remains an environment prerequisite.
+
+## Existing Python test suite on this Windows host
+
+Command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Result:
+
+```text
+16 failed, 113 passed in 17.29s
+```
+
+Fifteen failures are teardown failures where SQLite files such as `artifacts.sqlite3`, `projection.sqlite3`, or `rooms.sqlite3` remain open when `TemporaryDirectory.cleanup()` runs (`PermissionError: [WinError 32]`). The remaining failure expects a POSIX `0600` mode but Windows reports `0666`. Developer 3 did not change Python storage lifecycles or permission rules.
+
+## Open backend/contract failures
+
+### Uploaded artifact cannot be bound to a new job
+
+Real UI operation: upload `verification/demo-input.csv`, then submit the job.
+
+HTTP result: `POST /api/jobs` returned 500 HTML, which the typed client truthfully reported as `Server returned invalid JSON.`
+
+Backend traceback excerpt (verbatim):
+
+```text
+File "agentguard\artifacts.py", line 89, in bind
+    if old != target: os.replace(old, target)
+FileNotFoundError: [WinError 3] The system cannot find the path specified
+```
+
+Developer 3 did not change the Python artifact store.
+
+### Job creation response cannot identify the created job
+
+`POST /api/jobs` returns `Submission` (`submission_id`, `event_id`, `ledger_state`, optional `event_hash`) but no `job_id`. The frontend therefore shows the submitted event and reconciles via the jobs collection; it cannot truthfully navigate directly to the created job as required by the frontend specification.
+
+### Manual-provider proposal is not browser-constructible
+
+The only configured production provider kind is `manual`. `POST /api/jobs/{job_id}/actions` requires an `action.schema.json` payload containing `proposer_public_key`, but `GET /api/status` exposes only `node_public_key_fingerprint`. The real **Run next action** operation returns:
+
+```text
+manual provider requires an action submitted through the API
+```
+
+No full public key or browser-safe “propose manual action” request exists in the API contract, so live approval, receipt, completion, and malicious-proposal demonstrations cannot be driven entirely from the browser.
+
+## Frontend/harness defects found and fixed during the live run
+
+- Ajv registry now rebases contract URNs before resolving relative schema references.
+- Generated harness PEM is canonicalized to the Python signer representation.
+- The room form preserves public-key PEM bytes instead of trimming the trailing newline.
+- Removing an uploaded artifact also removes its ID from policy read grants.
+- Windows Vite launch uses Node directly instead of spawning `npm.cmd`.
+
+## Claims audit
+
+- No React UI claim uses “secure” or “distributed AI.”
+- “Verified” in the implementation documentation refers to concrete signature/path validation and is supported by schema/runtime tests.
+- “Private” appears only in negative-disclosure statements (private keys and artifact contents are not rendered). The live Settings/Gateway surfaces comply.
+- The root README still describes broad legacy features (selectable PoW/PoS/PoA, smart-contract deployment, IPFS integration, malicious node) without tying each claim to this AgentGuard acceptance run. Those claims should not be used in the five-minute AgentGuard demonstration.

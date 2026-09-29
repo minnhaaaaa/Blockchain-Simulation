@@ -14,6 +14,7 @@ The next milestone turns the simulator into a room-discovered, policy-controlled
 - [Developer 2: signalling and runtime](docs/DEV_2_RUNTIME.md)
 - [Developer 2 implementation guide](docs/DEV_2_IMPLEMENTATION.md)
 - [Developer 3: React and integration](docs/DEV_3_FRONTEND.md)
+- [Developer 3 implementation and demo runbook](docs/DEV_3_IMPLEMENTATION.md)
 
 Machine-readable contracts live in [`contracts/`](contracts/). This planning package specifies the target implementation; features remain subject to the definition of done in `PLAN.md` until their code and tests are merged.
 
@@ -26,7 +27,18 @@ Machine-readable contracts live in [`contracts/`](contracts/). This planning pac
 - IPFS integration
 - Persistent storage
 - Malicious node to test security
-- Command line interface and HTTP API; React dashboard is still pending
+- Command line interface, HTTP API, and React execution console
+
+## React console
+
+```bash
+cd frontend
+npm ci
+npm run check
+npm run demo
+```
+
+`npm run demo` allocates runtime ports and identities, starts signalling, three nodes/APIs, and Vite, then prints the operator-entered room values. See the [Developer 3 runbook](docs/DEV_3_IMPLEMENTATION.md) and [acceptance results](verification/DEV_3_ACCEPTANCE.md).
 
 ## Contents
 - [Theory](#theory)

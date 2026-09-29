@@ -1,0 +1,32 @@
+import type { components, operations } from "./openapi";
+
+export type Status = components["schemas"]["Status"];
+export type Provider = components["schemas"]["Provider"];
+export type Tool = components["schemas"]["Tool"];
+export type Peer = components["schemas"]["Peer"];
+export type Chain = components["schemas"]["Chain"];
+export type Block = components["schemas"]["Block"];
+export type Stake = components["schemas"]["Stake"];
+export type Submission = components["schemas"]["Submission"];
+export type JobProjection = components["schemas"]["JobProjection"];
+export type JobStatus = components["schemas"]["JobStatus"];
+export type Violation = components["schemas"]["Violation"];
+export type ApiErrorBody = components["schemas"]["apiError"];
+export type RoomManifest = components["schemas"]["room-manifest.schema"];
+export type RoomSessionRequest = components["schemas"]["room-session-request.schema"];
+export type JobCreateRequest = components["schemas"]["job-create-request.schema"];
+export type ActionDecisionRequest = components["schemas"]["action-decision-request.schema"];
+export type Action = components["schemas"]["action.schema"];
+export type AgentEvent = components["schemas"]["agent-event.schema"];
+export type Decision = components["schemas"]["decision.schema"];
+export type Receipt = components["schemas"]["receipt.schema"];
+export type ArtifactRef = components["schemas"]["artifactRef"];
+export type PolicyRuleInput = components["schemas"]["ruleInput"];
+export type PolicyLimits = components["schemas"]["limits"];
+export type GenesisAllocation = components["schemas"]["genesisAllocation"];
+export type ConsensusParameters = components["schemas"]["consensusParameters"];
+export type JobDetail = operations["getJob"]["responses"][200]["content"]["application/json"];
+export type StakeSnapshot = operations["listStakes"]["responses"][200]["content"]["application/json"];
+export type BlockDetail = operations["getBlock"]["responses"][200]["content"]["application/json"];
+
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
