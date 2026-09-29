@@ -12,6 +12,7 @@
 - `agentguard/projection.py`: rebuildable SQLite job and violation read model.
 - `agentguard/node_service.py`: strict integration boundary for Developer 1's PoS node adapter.
 - `api/app.py`: Flask application API matching `contracts/openapi.json`.
+- `api/compose.py` and `api/__main__.py`: explicit real-node composition and node/API launcher.
 
 Production construction requires a real `NodeService`, a persisted signer supplied by the node integration, explicit configuration, and explicit provider registration. Test fakes live only in `tests/fakes.py`.
 
@@ -39,7 +40,17 @@ The service never creates a room or member automatically. A node/application cre
 
 ## Application composition
 
-The application is an app factory because Developer 1's node implementation owns chain identity, signing-key persistence, P2P lifecycle, and finality. Construct these dependencies explicitly:
+The application remains an app factory for tests and embedding. The runnable composition loads every operational value from a JSON file and wires Developer 1's real node adapter:
+
+```bash
+python -m api --config <path-to-node-config.json>
+```
+
+The node config has `application`, `node`, `agent`, `signalling`, and `providers` sections. `application` supplies all fields accepted by `ApplicationConfig` (including identity, advertised endpoint, data root, signalling URL, API bind endpoint, and allowed browser origins). `node` requires `max_event_bytes`, `connect_timeout_s`, `transition_timeout_s`, and an optional `stake_amount` matching the room's signed genesis reservation. `agent` requires `max_csv_rows`, `max_query_rows`, `max_schema_nodes`, and `max_schema_depth`. `signalling` requires positive `timeout_seconds` and `refresh_interval_ms`. `providers` is an explicit list, possibly empty; each manual provider has `kind: "manual"`, a `provider_id`, and a `label`. No room, peer, provider, port, or stake is inferred at startup.
+
+The first node creates a room through `POST /api/room-session`; the body must supply `genesis_allocations` with `public_key`, `amount`, and `stake` for each participant. Other nodes join by submitting `{"operation":"join","room_id":"<operator-room-id>"}` to the same route on their own local APIs. Use a different data root, node ID, API port, and advertised P2P port for every process. The membership loop refreshes discovery and leaves on shutdown.
+
+For direct programmatic construction, supply:
 
 1. `ApplicationConfig.from_mapping(...)`.
 2. `SchemaValidator` pointed at `contracts/schemas`.
@@ -58,7 +69,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 The current suite covers configuration failure, schema rejection, manifest signatures/immutability, room isolation/expiry, artifact containment/integrity, deny-by-default policy behavior, CSV import, read-only SQL, honest action execution, signed receipts, approval/replay prevention, denial violations, terminal job validation, and browser-safe room creation.
 
-Developer 1 must additionally run these tests against the real node adapter and add multi-node finality/reorg cases. Developer 3 should generate client types from the updated OpenAPI contract and run browser tests against this app factory wired to the real adapter.
+The current suite includes the real PoS adapter, three-node convergence/finality, room transitions, malicious/replay cases, and restart checks. Developer 3 still needs to deliver the React client and browser tests.
 
 ## Security boundaries
 

@@ -57,6 +57,13 @@ class RoomRegistry:
                 if row["manifest_json"] == encoded:
                     return json.loads(row["manifest_json"])
                 raise RoomExists("room id is already bound to another manifest")
+            # A signed but economically impossible validator registry must
+            # never become an immutable, unusable room.
+            from consensus.pos.manifest import ManifestError, verify_manifest
+            try:
+                verify_manifest(manifest)
+            except ManifestError as exc:
+                raise RegistryError(str(exc)) from exc
             payload = signing_bytes("agentguard.room-manifest.v1", manifest, "signature")
             try: signature=decode_signature(manifest["signature"])
             except Exception as exc: raise RegistryError("invalid room manifest signature encoding") from exc

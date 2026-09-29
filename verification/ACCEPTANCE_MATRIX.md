@@ -1,5 +1,7 @@
 # Manual Acceptance Matrix
 
+Historical result from the teammate's Windows run at commit `144ae83`. See `INTEGRATION_REVIEW.md` for the merged revision. These rows are not a current acceptance result.
+
 Initially assessed: 2026-09-29 21:39:58 +05:30
 
 Re-verified against `origin/main` `144ae83`: 2026-09-29 21:56:37 +05:30

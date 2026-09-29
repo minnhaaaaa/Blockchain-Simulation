@@ -61,8 +61,15 @@ class RuntimeApiTests(unittest.TestCase):
     def test_room_session_create(self):
         body={"operation":"create","room_id":"created-room","protocol_version":"1","consensus_parameters":{
           "epoch_ms":100,"max_clock_skew_ms":0,"finality_depth":1,"max_connections":2,"block_reward":0,"minimum_stake":1},
-          "genesis_allocations":[{"public_key":self.signer.public_key_pem,"amount":1}]}
+          "genesis_allocations":[{"public_key":self.signer.public_key_pem,"amount":1,"stake":1}]}
         response=self.client.post("/api/room-session",json=body); self.assertEqual(200,response.status_code,response.get_data(as_text=True)); self.assertEqual("created-room",response.get_json()["room_id"])
+
+    def test_job_detail_and_commands_are_room_scoped(self):
+        job_id,_ = self.create_job()
+        self.runtime.room_id = "another-room"
+        self.assertEqual(404,self.client.get(f"/api/jobs/{job_id}").status_code)
+        self.assertEqual(404,self.client.post(f"/api/jobs/{job_id}/accept").status_code)
+        self.assertEqual([],self.client.get("/api/jobs").get_json()["items"])
     def test_approval_executes_once(self):
         body={"title":"Report task","instructions":"Write a reviewed report.","provider_id":"manual-runtime","input_artifact_ids":[],
           "policy":{"rules":[{"tool_id":"report.write","effect":"approval_required","read_artifact_ids":[],"write_scopes":["job.outputs"],

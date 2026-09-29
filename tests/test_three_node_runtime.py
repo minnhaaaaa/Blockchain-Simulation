@@ -76,7 +76,7 @@ def create_room(nodes, room_id="room-three-nodes"):
     creator = nodes[0]
     creator.session.configure({
         "operation": "create", "room_id": room_id, "protocol_version": "1", "consensus_parameters": PARAMS,
-        "genesis_allocations": [{"public_key": n.signer.public_key_pem, "amount": 1000} for n in nodes]})
+        "genesis_allocations": [{"public_key": n.signer.public_key_pem, "amount": 1000, "stake": 50 if n is nodes[0] else 0} for n in nodes]})
     for n in nodes[1:]:
         n.session.configure({"operation": "join", "room_id": room_id})
     return room_id
@@ -163,8 +163,9 @@ def test_room_transition_disconnects_old_room_peers_and_reports_after_completion
     old_peer = b.peer
     b.session.configure({"operation": "create", "room_id": "another-room-x", "protocol_version": "1",
                          "consensus_parameters": PARAMS,
-                         "genesis_allocations": [{"public_key": b.signer.public_key_pem, "amount": 10}]})
+                         "genesis_allocations": [{"public_key": b.signer.public_key_pem, "amount": 10, "stake": 1}]})
     assert b.peer is not old_peer and b.peer.room_id == "another-room-x"
+    assert b.node_id not in {member["node_id"] for member in registry.list_members(room_id)["items"]}
     assert old_peer.server_connections == set() and old_peer.client_connections == set()
     assert until(lambda: len(a.peer.admitted) == 1)                 # only c remains connected to a
     assert b.peer.chain.chain[0].hash != a.peer.chain.chain[0].hash

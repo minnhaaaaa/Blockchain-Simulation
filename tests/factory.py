@@ -36,9 +36,10 @@ def new_id() -> str:
 
 def make_manifest(creator: Wallet, *, room_id: Optional[str] = None, allocations=None, epoch_ms=100,
                   max_clock_skew_ms=5_000, finality_depth=2, max_connections=8, block_reward=6,
-                  minimum_stake=1, created_at_ms=None) -> Dict[str, Any]:
+                  minimum_stake=1, created_at_ms=None, stake_amount=5) -> Dict[str, Any]:
     created = created_at_ms if created_at_ms is not None else int(time.time() * 1000) - 3_600_000
     allocations = allocations or [{"public_key": creator.public_key_pem, "amount": 1_000}]
+    allocations = [{**a, "stake": a.get("stake", stake_amount if a["public_key"] == creator.public_key_pem else 0)} for a in allocations]
     return sign_manifest({
         "schema_version": 1,
         "room_id": room_id or ("room-" + uuid.uuid4().hex[:12]),

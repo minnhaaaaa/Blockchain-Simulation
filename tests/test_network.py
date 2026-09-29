@@ -60,7 +60,7 @@ class Cluster:
 async def cluster(tmp_path):
     creator = Wallet()
     others = [Wallet(), Wallet()]
-    manifest = make_manifest(creator, epoch_ms=2000, allocations=[
+    manifest = make_manifest(creator, epoch_ms=2000, stake_amount=25, allocations=[
         {"public_key": w.public_key_pem, "amount": 1000} for w in [creator] + others])
     c = Cluster(tmp_path, manifest, [creator] + others)
     await c.start()
@@ -120,3 +120,37 @@ async def test_peer_rejects_foreign_genesis_chain(cluster):
     before = p1.chain.lastBlock.hash
     await p1.handle_messages(None, pkt)
     assert p1.chain.lastBlock.hash == before and len(p1.chain.chain) == 1
+
+
+async def test_room_hello_requires_a_fresh_signed_challenge(tmp_path):
+    import json
+    wallet = Wallet()
+    manifest = make_manifest(wallet)
+    peer, _ = make_node(manifest, wallet, str(tmp_path))
+
+    class Socket:
+        def __init__(self):
+            self.sent = []
+            self.closed = False
+        async def send(self, raw): self.sent.append(json.loads(raw))
+        async def close(self): self.closed = True
+
+    victim = Socket()
+    await peer.send_room_hello(victim)
+    original = victim.sent[0]["challenge"]
+    forged = {"type":"room_hello", "id":"forged", "room_id":manifest["room_id"],
+              "genesis_hash":peer.genesis_hash, "public_key":wallet.public_key_pem,
+              "challenge":original, "signature":""}
+    await peer.handle_messages(victim,forged)
+    assert victim.closed and victim not in peer.admitted
+
+    replay_target = Socket()
+    await peer.send_room_hello(replay_target)
+    response = {"room_id":manifest["room_id"],"genesis_hash":peer.genesis_hash,
+                "public_key":wallet.public_key_pem,"challenge":original}
+    from canonical import signing_bytes
+    import base64
+    signed = {"type":"room_hello","id":"replayed",**response,
+              "signature":base64.b64encode(wallet.private_key.sign(signing_bytes("agentguard.room-hello.v1",response))).decode()}
+    await peer.handle_messages(replay_target,signed)
+    assert replay_target.closed and replay_target not in peer.admitted

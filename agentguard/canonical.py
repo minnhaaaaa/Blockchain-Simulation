@@ -1,11 +1,11 @@
 import base64
 import hashlib
-import json
 from typing import Any, Mapping
+from canonical import canonical_json as _canonical_json, signing_bytes as _signing_bytes
 
 
 def canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return _canonical_json(value).decode("utf-8")
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -13,7 +13,7 @@ def canonical_bytes(value: Any) -> bytes:
 
 
 def domain_bytes(domain: str, value: Any) -> bytes:
-    return domain.encode("utf-8") + b"\n" + canonical_bytes(value)
+    return _signing_bytes(domain, value)
 
 
 def sha256_hex(value: bytes) -> str:
@@ -35,4 +35,3 @@ def encode_signature(signature: bytes) -> str:
 
 def decode_signature(signature: str) -> bytes:
     return base64.b64decode(signature, validate=True)
-

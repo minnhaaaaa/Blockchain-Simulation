@@ -62,7 +62,8 @@ def create_app(config:ApplicationConfig,runtime:AgentRuntime,node:NodeService,ar
         chain=node.get_chain_summary(1); peers=node.get_peer_summaries(); provider_items=providers.public()
         provider_state="unconfigured" if not provider_items else ("configured" if any(x["state"]=="ready" for x in provider_items) else "unavailable")
         return jsonify({"room_id":runtime.room_id,"node_id":config.node_id,"node_name":config.node_name,
-          "node_public_key_fingerprint":fingerprint(runtime.signer.public_key_pem),"node_state":"online","api_state":"online",
+          "node_public_key_fingerprint":fingerprint(runtime.signer.public_key_pem),
+          "node_state":"starting" if not chain["blocks"] and chain["height"] == 0 else "online","api_state":"online",
           "provider_state":provider_state,"chain_height":chain["height"],"finalized_height":chain["finalized_height"],
           "updated_at_ms":int(time.time()*1000)})
 
@@ -97,7 +98,9 @@ def create_app(config:ApplicationConfig,runtime:AgentRuntime,node:NodeService,ar
     @app.get("/api/jobs")
     def jobs(): return jsonify({"items":projections.list_jobs(runtime.room_id,request.args.get("status"))})
     @app.get("/api/jobs/<job_id>")
-    def job(job_id): return jsonify({"job":projections.projection(job_id),"events":projections.events(job_id)})
+    def job(job_id):
+        projection = projections.projection(job_id, runtime.room_id)
+        return jsonify({"job":projection,"events":projections.events_for_room(runtime.room_id,job_id)})
     @app.post("/api/jobs/<job_id>/accept")
     def accept(job_id): return jsonify(runtime.accept(job_id).to_dict()),202
     @app.post("/api/jobs/<job_id>/run")

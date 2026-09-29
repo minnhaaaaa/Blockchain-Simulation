@@ -1,5 +1,7 @@
 # Person 3 Verification Report
 
+Historical report produced before Developer 1's branch and the integration fixes were merged. Refer to `INTEGRATION_REVIEW.md` for current results; statements below about a missing real adapter, tests, and launcher describe only the older revision.
+
 Initial run timestamp: 2026-09-29 21:39:58 +05:30 (Asia/Calcutta)
 
 Re-verification timestamp: 2026-09-29 21:56:37 +05:30

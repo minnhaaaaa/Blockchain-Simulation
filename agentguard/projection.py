@@ -19,23 +19,46 @@ class ProjectionStore:
         db=sqlite3.connect(self.database); db.row_factory=sqlite3.Row; return db
     def contains(self,event_id):
         with self._connect() as db: return db.execute("SELECT 1 FROM events WHERE event_id=?",(event_id,)).fetchone() is not None
+    def remove(self,event_id):
+        with self._lock,self._connect() as db:
+            db.execute("DELETE FROM events WHERE event_id=?",(event_id,))
     def apply(self,event:dict,ledger_state:str):
         encoded=json.dumps(event,sort_keys=True,separators=(",",":"))
         with self._lock,self._connect() as db:
+            if ledger_state == "rejected":
+                db.execute("DELETE FROM events WHERE event_id=?", (event["event_id"],))
+                return
             existing=db.execute("SELECT event_json FROM events WHERE event_id=?",(event["event_id"],)).fetchone()
             if existing:
                 if existing["event_json"]!=encoded: raise ProjectionError("event id reused with different content")
                 db.execute("UPDATE events SET ledger_state=? WHERE event_id=?",(ledger_state,event["event_id"])); return
             db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)",(event["event_id"],event["room_id"],event["job_id"],event["sequence"],event["event_type"],encoded,ledger_state))
+    def rebuild_room(self,room_id:str,events:list[tuple[dict,str]]):
+        """Replace a room's cached read model with the node's accepted state."""
+        with self._lock,self._connect() as db:
+            db.execute("DELETE FROM events WHERE room_id=?",(room_id,))
+            for event,state in events:
+                if event["room_id"] != room_id or state not in ("submitted","included","finalized"):
+                    raise ProjectionError("node returned an invalid room event or ledger state")
+                encoded=json.dumps(event,sort_keys=True,separators=(",",":"))
+                db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)",
+                           (event["event_id"],room_id,event["job_id"],event["sequence"],event["event_type"],encoded,state))
     def _records(self,job_id):
         with self._connect() as db: rows=db.execute("SELECT event_json,ledger_state FROM events WHERE job_id=? ORDER BY sequence",(job_id,)).fetchall()
         return [(json.loads(row["event_json"]),row["ledger_state"]) for row in rows]
     def events(self,job_id): return [event for event,_ in self._records(job_id)]
+    def events_for_room(self,room_id,job_id):
+        records=self._records(job_id)
+        if records and any(event["room_id"] != room_id for event,_ in records):
+            raise ProjectionError("job not found")
+        return [event for event,_ in records]
     def job_ids(self,room_id):
         with self._connect() as db: return [r[0] for r in db.execute("SELECT DISTINCT job_id FROM events WHERE room_id=? ORDER BY job_id",(room_id,))]
-    def projection(self,job_id):
+    def projection(self,job_id,room_id=None):
         records=self._records(job_id); events=[event for event,_ in records]
         if not events or events[0]["event_type"]!="job.created": raise ProjectionError("job not found")
+        if room_id is not None and any(event["room_id"] != room_id for event in events):
+            raise ProjectionError("job not found")
         source=events[0]["payload"]; status="submitted"; worker=None; actions=completed=pending=0
         for event in events[1:]:
             kind=event["event_type"]

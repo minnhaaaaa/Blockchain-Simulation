@@ -83,14 +83,14 @@ def test_submit_include_finalize_flow_and_state_notifications(room):
     assert svc.get_event(first_id)["event_id"] == first_id
     assert svc.get_event_state(first_id) == "submitted"
 
-    block = svc.produce_block(stake_amount=10)
+    block = svc.produce_block(stake_amount=5)
     assert block and block["event_ids"] == [first_id]
     assert svc.get_event_state(first_id) == "included"
 
     for i in range(2):                          # finality_depth = 2 more blocks
         wait_spacing(room)
         svc.submit_event(s.accepted() if i == 0 else s.proposed()[0])
-        assert svc.produce_block(stake_amount=10)
+        assert svc.produce_block(stake_amount=5)
     assert svc.get_event_state(first_id) == "finalized"
     summary = svc.get_chain_summary(10)
     assert summary["height"] == 3 and summary["finalized_height"] == 1
@@ -144,9 +144,9 @@ def test_chain_peer_and_stake_read_models(room):
     summary = svc.get_chain_summary(5)
     assert summary["height"] == 0 and summary["blocks"][0]["previous_hash"] == "0" * 64
     assert svc.get_peer_summaries() == []
-    peer.register_stake(7)
+    peer.register_stake(5)
     snap = svc.get_stake_snapshot()
-    assert snap["total_stake"] == 7 and snap["items"][0]["amount"] == 7
+    assert snap["total_stake"] == 5 and snap["items"][0]["amount"] == 5
     assert snap["latest_proposer_fingerprint"] is None
 
 

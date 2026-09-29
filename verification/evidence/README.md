@@ -1,5 +1,7 @@
 # Screenshot Evidence Manifest
 
+Historical manifest from the teammate's Windows review. Browser screenshots remain outstanding because no React frontend branch was pushed. Current backend verification is summarized in `../INTEGRATION_REVIEW.md`.
+
 Initial verification: 2026-09-29 21:39:58 +05:30
 
 Re-verification: 2026-09-29 21:56:37 +05:30 against `origin/main` `144ae83`

@@ -182,6 +182,7 @@ class Chain(CommonChain):
             raise ValueError("Invalid arguments")
 
         self.slashed_keys=set()
+        self.evidence_records=[]
         self.params=core.ConsensusParams.legacy()
 
 
@@ -198,9 +199,25 @@ class Chain(CommonChain):
     
     def rewrite(self, blockList :List[Block]):
         """Replace the chain only when the candidate has a strictly better deterministic score."""
+        finalized = max(0, len(self.chain) - 1 - self.params.finality_depth)
+        if len(blockList) <= finalized or any(
+            not self.chain[i].is_equal(blockList[i]) for i in range(finalized + 1)
+        ):
+            return False
         if not core.better_chain(blockList, self.chain):
             return False
+        retained=[]
+        keys=set()
+        for record in self.evidence_records:
+            height=record["height"]
+            if height<len(blockList) and self.chain[height].is_equal(blockList[height]):
+                blockList[height].is_valid=False
+                blockList[height].slash_creator=True
+                retained.append(record)
+                keys.add(core.double_sign_key(blockList[height],height))
         self.chain=blockList.copy()
+        self.slashed_keys=keys
+        self.evidence_records=retained
         return True
 
     def apply_double_sign_evidence(self, block_a: "Block", block_b: "Block", height: int) -> bool:
@@ -221,6 +238,12 @@ class Chain(CommonChain):
         self.slashed_keys.add(key)
         on_chain.is_valid=False
         on_chain.slash_creator=True
+        evidence=[]
+        for block in sorted((block_a,block_b),key=lambda item:item.hash):
+            signed=block.to_dict()
+            signed["sign"]=base64.b64encode(block.sign).decode("ascii")
+            evidence.append(signed)
+        self.evidence_records.append({"height":height,"blocks":evidence})
         return True
     
     def isValidBlock(self, block: Block, ledger=None):
@@ -276,7 +299,8 @@ class Chain(CommonChain):
             mem_pool.append(transaction)
 
         try:
-            core.validate_stake_snapshot(block.stakers, block.creator, block.staked_amt, self.params.minimum_stake)
+            core.validate_stake_snapshot(block.stakers, block.creator, block.staked_amt, self.params.minimum_stake,
+                                         authenticated=core.committed_snapshot(self.chain[0]))
         except core.ConsensusError as e:
             print(f"\nInvalid stake snapshot: {e}\n")
             return False
@@ -454,7 +478,8 @@ def isvalidChain(blockList:List[Block], genesis_hash:str=None, ledger_factory=No
             return False
 
         try:
-            total_stake=core.validate_stake_snapshot(currBlock.stakers, currBlock.creator, currBlock.staked_amt, params.minimum_stake)
+            total_stake=core.validate_stake_snapshot(currBlock.stakers, currBlock.creator, currBlock.staked_amt, params.minimum_stake,
+                                                    authenticated=core.committed_snapshot(genesis))
         except core.ConsensusError as e:
             print(f"\nInvalid stake snapshot: {e}\n")
             return False
@@ -523,4 +548,3 @@ def isvalidChain(blockList:List[Block], genesis_hash:str=None, ledger_factory=No
             return False
 
     return True
-

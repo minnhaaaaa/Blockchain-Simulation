@@ -1,5 +1,7 @@
 # Five-Minute Presentation and Demo Runbook
 
+Historical Person 3 script for commit `144ae83`. The merged backend now has a real adapter and launcher, but the React interface is still absent. See `INTEGRATION_REVIEW.md` before presenting this script.
+
 Current release status: **NO-GO for a live AgentGuard demo.** This sequence is the presentation that can be made truthfully from the verified run. The intended live steps remain gated until the implementation exists and the acceptance matrix passes.
 
 ## 0:00-0:40 — Scope

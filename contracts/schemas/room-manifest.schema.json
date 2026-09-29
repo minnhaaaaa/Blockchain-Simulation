@@ -19,10 +19,11 @@
     "genesisAllocation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["public_key", "amount"],
+      "required": ["public_key", "amount", "stake"],
       "properties": {
         "public_key": {"$ref": "./common.schema.json#/$defs/publicKeyPem"},
-        "amount": {"type": "integer", "minimum": 1}
+        "amount": {"type": "integer", "minimum": 1},
+        "stake": {"type": "integer", "minimum": 0, "description": "Immutable reserved validator stake; zero denotes a non-validator."}
       }
     }
   },

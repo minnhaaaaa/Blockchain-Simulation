@@ -59,7 +59,8 @@ def room_for(tmp_path, others, own, other_total, want_eligible=True, extra_creat
     while True:
         w = Wallet()
         manifest = make_manifest(w, epoch_ms=2000, allocations=[
-            {"public_key": x.public_key_pem, "amount": 1000} for x in [w] + list(others)])
+            {"public_key": x.public_key_pem, "amount": 2000,
+             "stake": own if x is w else (other_total if i == 1 else 0)} for i, x in enumerate([w] + list(others))])
         seed = genesis_hash(manifest)
         if core.is_eligible(core.vrf_output_int(w.public_key_pem, seed), own, own + other_total) == want_eligible:
             break

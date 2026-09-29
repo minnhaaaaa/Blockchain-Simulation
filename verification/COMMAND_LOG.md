@@ -1,5 +1,7 @@
 # Clean-Terminal Command Log
 
+Historical PowerShell transcript from commit `144ae83`. Its machine-specific runtime config was removed from the merged repository. Current Linux verification and launch commands are in `INTEGRATION_REVIEW.md` and `docs/DEV_2_IMPLEMENTATION.md`.
+
 Timestamp: 2026-09-29 21:39:58 +05:30
 
 Re-verification: 2026-09-29 21:56:37 +05:30 against `origin/main` commit `144ae83`

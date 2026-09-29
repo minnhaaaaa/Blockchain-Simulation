@@ -82,7 +82,7 @@ class RealAdapterRuntimeApiTests(RuntimeApiTests):
         session.configure({"operation": "create", "room_id": self.room, "protocol_version": "1",
                            "consensus_parameters": {"epoch_ms": 500, "max_clock_skew_ms": 5000, "finality_depth": 2,
                                                     "max_connections": 4, "block_reward": 0, "minimum_stake": 1},
-                           "genesis_allocations": [{"public_key": self.signer.public_key_pem, "amount": 1000}]})
+                           "genesis_allocations": [{"public_key": self.signer.public_key_pem, "amount": 1000, "stake": 5}]})
 
     def tearDown(self):
         self.runtime.close()

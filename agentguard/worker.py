@@ -28,14 +28,22 @@ class AgentRuntime:
         self._cancel_subscription=self.node.subscribe_state_changes(self._on_state_change)
 
     def _on_state_change(self,change:dict):
-        event=self.node.get_event(change.get("event_id"))
         state=change.get("ledger_state")
-        if event and state in ("submitted","included","finalized","rejected") and (state!="rejected" or self.projections.contains(event["event_id"])):
+        if state == "rejected":
+            self.projections.remove(change.get("event_id"))
+            return
+        event=self.node.get_event(change.get("event_id"))
+        if event and state in ("submitted","included","finalized"):
             self.projections.apply(event,state)
 
     def close(self): self._cancel_subscription()
 
-    def _events(self,job_id): return self.projections.events(job_id)
+    def rebuild_from_node(self,room_id:str):
+        events = self.node.list_all_events()
+        with_states = [(event,self.node.get_event_state(event["event_id"])) for event in events]
+        self.projections.rebuild_room(room_id,with_states)
+
+    def _events(self,job_id): return self.projections.events_for_room(self.room_id,job_id)
     def _event(self,event_type,job_id,payload):
         events=self._events(job_id); sequence=len(events); previous=events[-1]["event_hash"] if events else None
         event={"schema_version":1,"event_id":str(uuid.uuid4()),"event_type":event_type,"room_id":self.room_id,
@@ -68,18 +76,18 @@ class AgentRuntime:
     def accept(self,job_id):
         job=self._source_job(job_id)
         if job.get("expires_at_ms") is not None and self.clock_ms()>=job["expires_at_ms"]: raise RuntimeError("job has expired")
-        if self.projections.projection(job_id)["status"]!="submitted": raise RuntimeError("job cannot be accepted")
+        if self.projections.projection(job_id,self.room_id)["status"]!="submitted": raise RuntimeError("job cannot be accepted")
         return self._event("job.accepted",job_id,{"schema_version":1,"job_id":job_id,"worker_public_key":self.signer.public_key_pem,"accepted_at_ms":self.clock_ms()})
 
     def _source_job(self,job_id): return self._events(job_id)[0]["payload"]
     def propose(self,job_id,action):
-        if self.projections.projection(job_id)["status"] not in ("accepted","running"): raise RuntimeError("job is not executable")
+        if self.projections.projection(job_id,self.room_id)["status"] not in ("accepted","running"): raise RuntimeError("job is not executable")
         self.schemas.validate_named("action.schema.json",action)
         job=self._source_job(job_id)
         if job.get("expires_at_ms") is not None and self.clock_ms()>=job["expires_at_ms"]: raise RuntimeError("job has expired")
-        if self.projections.projection(job_id)["action_count"] >= job["policy"]["limits"]["max_actions"]:
+        if self.projections.projection(job_id,self.room_id)["action_count"] >= job["policy"]["limits"]["max_actions"]:
             raise RuntimeError("job action limit reached")
-        if action["action_sequence"] != self.projections.projection(job_id)["action_count"]:
+        if action["action_sequence"] != self.projections.projection(job_id,self.room_id)["action_count"]:
             raise RuntimeError("action sequence is not the next expected value")
         acceptance=next((event for event in self._events(job_id) if event["event_type"]=="job.accepted"),None)
         if not acceptance or acceptance["payload"]["worker_public_key"]!=self.signer.public_key_pem:
@@ -145,7 +153,7 @@ class AgentRuntime:
 
     def complete(self,job_id,request):
         self.schemas.validate_named("job-complete-request.schema.json",request)
-        events=self._events(job_id); projection=self.projections.projection(job_id)
+        events=self._events(job_id); projection=self.projections.projection(job_id,self.room_id)
         if projection["status"] not in ("accepted","running"): raise RuntimeError("job cannot be completed in its current state")
         if projection["pending_approval_count"]: raise RuntimeError("job has an action awaiting approval")
         proposed={event["payload"]["action_id"] for event in events if event["event_type"]=="action.proposed"}

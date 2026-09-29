@@ -22,6 +22,7 @@ from ecdsa import VerifyingKey, BadSignatureError
 import tempfile, threading
 from pathlib import Path
 import ast
+from canonical import signing_bytes
 
 MAX_OUTPUT=2**256
 GAS_PRICE = 0.001 # coin per gas unit
@@ -111,6 +112,7 @@ class Peer:
         # manifest genesis) and the public key each presented.
         self.admitted = set()
         self.ws_public_keys = {}
+        self._room_challenges = {}
         self._finalized_notified = set()
         self.included_events = {}
         self.ledger: JobLedger = self._new_ledger() if event_rules else None
@@ -176,6 +178,7 @@ class Peer:
         self.current_stakes: set[Stake]=set() # Public key is stored as pem string
         self.current_stakers:Dict[str, int]={}
         self.curr_stakers_condition=asyncio.Condition() 
+        self.reset_stake_snapshot()
         
         
         if activate_disk_load == "y":
@@ -298,13 +301,16 @@ class Peer:
             raise ValueError("stored chain failed validation; refusing to start from it")
         self.chain=Chain(blockList=block_list)
         self.chain.params=self.params
+        if self.storage:
+            self.apply_evidence_records(self.storage.load_evidence())
         if self.event_rules:
             self.rebuild_ledger()
 
     def save_chain_to_disk(self):
         chain = self.chain.to_block_dict_list()
         if self.storage:
-            return self.storage.save_chain(chain)
+            self.storage.save_chain(chain)
+            return self.storage.save_evidence(self.chain.evidence_records)
         save_chain(chain, CONSENSUS)
 
     def save_known_peers_to_disk(self):
@@ -432,15 +438,33 @@ class Peer:
         ts=stake_dict.get("ts")
         sign=stake_dict.get("sign")
 
-        if(not(id and staker and amt and sign)):
+        if(not(id and staker and amt)):
+            return None
+        if not sign and not (self.manifest and self.validator_stakes.get(staker) == amt):
             return None
         
         stake=Stake(staker, amt, ts)
         stake.id=id
 
-        sign_bytes=base64.b64decode(sign)        
-        stake.sign=sign_bytes
+        stake.sign=base64.b64decode(sign, validate=True) if sign else None
         return stake
+
+    @property
+    def validator_stakes(self):
+        if self.manifest:
+            return {a["public_key"]: a["stake"] for a in self.manifest["genesis"]["allocations"] if a["stake"]}
+        return {}
+
+    def reset_stake_snapshot(self):
+        """Room consensus uses the immutable genesis registry, never gossip state."""
+        self.current_stakers = self.validator_stakes
+        self.current_stakes = set()
+        if self.manifest:
+            for public_key, amount in sorted(self.current_stakers.items()):
+                stake = Stake(public_key, amount, self.manifest["genesis"]["created_at_ms"])
+                stake.id = str(uuid.uuid5(uuid.NAMESPACE_URL,
+                    f"agentguard:stake:{self.manifest['genesis']['block_id']}:{public_key}"))
+                self.current_stakes.add(stake)
 
     def valid_deploy_transaction(self, payload):
         contract_code = payload[0]
@@ -485,11 +509,12 @@ class Peer:
             counter += 1
 
     async def send_room_hello(self, websocket):
-        """Tell a new connection which room and genesis we belong to (manifest mode only)."""
+        """Challenge the peer to prove possession of its room signing key."""
         if not self.manifest:
             return
-        pkt = {"type": "room_hello", "id": str(uuid.uuid4()), "room_id": self.room_id,
-               "genesis_hash": self.genesis_hash, "public_key": self.wallet.public_key_pem}
+        challenge = uuid.uuid4().hex
+        self._room_challenges[websocket] = challenge
+        pkt = {"type": "room_challenge", "id": str(uuid.uuid4()), "challenge": challenge}
         remember_message_id(self.seen_message_ids, pkt["id"])
         await websocket.send(json.dumps(pkt))
 
@@ -504,6 +529,8 @@ class Peer:
         self.client_connections.clear()
         self.outbound_peers.clear()
         self.admitted.clear()
+        self._room_challenges.clear()
+        self.ws_public_keys.clear()
 
     async def handle_messages(self, websocket, msg):
         """
@@ -522,18 +549,38 @@ class Peer:
         if not t or not id:
             return
 
-        # Room binding: on a real socket nothing but room_hello is processed
-        # until the remote proves it is in this room with this genesis, so
-        # peers of another room (or a legacy peer) never reach any handler.
+        # A signed response to this connection's unique challenge binds the
+        # socket to a key, room, and immutable genesis. A copied hello cannot
+        # be replayed on another connection.
         if self.manifest and websocket is not None:
+            if t == "room_challenge" and websocket not in self.admitted:
+                challenge = msg.get("challenge")
+                if not isinstance(challenge, str) or len(challenge) != 32:
+                    await websocket.close()
+                    return
+                response = {"room_id": self.room_id, "genesis_hash": self.genesis_hash,
+                            "public_key": self.wallet.public_key_pem, "challenge": challenge}
+                response["signature"] = base64.b64encode(self.wallet.private_key.sign(
+                    signing_bytes("agentguard.room-hello.v1", response))).decode("ascii")
+                await websocket.send(json.dumps({"type": "room_hello", "id": str(uuid.uuid4()), **response}))
+                return
             if t == "room_hello":
+                challenge = self._room_challenges.pop(websocket, None)
+                hello = {field: msg.get(field) for field in ("room_id", "genesis_hash", "public_key", "challenge")}
+                try:
+                    signature = base64.b64decode(msg.get("signature", ""), validate=True)
+                    signed = verify_signature(hello["public_key"], signature,
+                                              signing_bytes("agentguard.room-hello.v1", hello))
+                except (ValueError, TypeError, KeyError):
+                    signed = False
                 if msg.get("room_id") != self.room_id or msg.get("genesis_hash") != self.genesis_hash \
-                        or not isinstance(msg.get("public_key"), str):
+                        or not isinstance(msg.get("public_key"), str) or challenge != msg.get("challenge") or not signed:
                     print("\nPeer belongs to a different room or genesis; disconnecting\n")
                     await websocket.close()
                     return
                 self.admitted.add(websocket)
                 self.ws_public_keys[websocket] = msg["public_key"]
+                await websocket.send(json.dumps({"type": "ping", "id": str(uuid.uuid4())}))
                 return
             if websocket not in self.admitted:
                 return
@@ -561,6 +608,9 @@ class Peer:
         elif t == 'peer_info':
             data = msg.get("data")
             if not data:
+                return
+            if self.manifest and websocket is not None and data.get("public_key") != self.ws_public_keys.get(websocket):
+                await websocket.close()
                 return
             
             if not all(k in data for k in ['host', 'port', 'name', 'public_key']):
@@ -764,6 +814,10 @@ class Peer:
             await self.broadcast_message(msg)
 
         elif t == "stake_announcement":
+            if self.manifest:
+                # Reserved stakes are authenticated by the room trust anchor.
+                # An announcement cannot reweight or replace that registry.
+                return
             stake_dict = msg.get("stake")
             if not stake_dict:
                 return
@@ -917,7 +971,8 @@ class Peer:
                     return
 
                 try:
-                    total_amt_staked = core.validate_stake_snapshot(newBlock.stakers, creator_key, self.current_stakers[creator_key], self.params.minimum_stake)
+                    total_amt_staked = core.validate_stake_snapshot(newBlock.stakers, creator_key, self.current_stakers[creator_key], self.params.minimum_stake,
+                                                                   authenticated=self.validator_stakes if self.manifest else None)
                 except core.ConsensusError as e:
                     print(f"\nInvalid Block ({e})\n")
                     return
@@ -967,8 +1022,7 @@ class Peer:
             
             self.staked_amt = 0
             async with self.curr_stakers_condition:
-                self.current_stakers.clear()
-                self.current_stakes.clear()
+                self.reset_stake_snapshot()
 
             await self.broadcast_message(msg)
             if self.activate_disk_save == "y":
@@ -1013,6 +1067,8 @@ class Peer:
                 return
             if applied:
                 print(f"\nBlock {pos} slashed\n")
+                if self.activate_disk_save == "y":
+                    self.save_chain_to_disk()
                 await self.broadcast_message(msg)
             # Already-applied evidence is ignored, so a penalty lands once.
 
@@ -1034,7 +1090,8 @@ class Peer:
             pkt = {
                 "type": "chain",
                 "id": str(uuid.uuid4()),
-                "chain": self.chain.to_block_dict_list()
+                "chain": self.chain.to_block_dict_list(),
+                "evidence": self.chain.evidence_records,
             }
             await websocket.send(json.dumps(pkt))
 
@@ -1052,6 +1109,9 @@ class Peer:
 
             if not isvalidChain(block_list, self.genesis_hash, self._new_ledger if self.event_rules else None, self.params):
                 print("\nInvalid Chain\n")
+                return
+            evidence = msg.get("evidence", [])
+            if not isinstance(evidence, list):
                 return
 
             # A chain rooted at a genesis block other than ours is a different
@@ -1083,6 +1143,8 @@ class Peer:
                 else:
                     print("\nCurrent chain scores at least as well as the received chain\n")
 
+            self.apply_evidence_records(evidence)
+
             async with self.mem_pool_lock:
                 for transaction in self.mem_pool:
                     if self.chain.transaction_exists_in_chain(transaction):
@@ -1106,6 +1168,26 @@ class Peer:
             included = {e["event_id"] for e in block.events}
             self.event_pool = self._revalidate_pool([e for e in self.event_pool if e["event_id"] not in included])
             self.notify_finality()
+
+    def apply_evidence_records(self, records):
+        """Replay signed evidence; a forged witness cannot change balances."""
+        if not self.chain:
+            return
+        for record in records:
+            try:
+                if not isinstance(record, dict) or len(record["blocks"]) != 2:
+                    continue
+                height=record["height"]
+                if not isinstance(height,int) or isinstance(height,bool):
+                    continue
+                blocks=[self.block_dict_to_block(item) for item in record["blocks"]]
+                if any(block is None or block.sign is None for block in blocks):
+                    continue
+                applied=self.chain.apply_double_sign_evidence(blocks[0],blocks[1],height)
+                if applied and self.activate_disk_save == "y":
+                    self.save_chain_to_disk()
+            except (KeyError, TypeError, ValueError, core.ConsensusError):
+                continue
 
     def pooled_ledger(self):
         """Committed state plus pending pool events (the 'submitted' view)."""
@@ -1139,6 +1221,18 @@ class Peer:
 
     def register_stake(self, amt: int):
         """Synchronous stake registration for the current epoch (no broadcast)."""
+        if not isinstance(amt, int) or isinstance(amt, bool) or amt < self.params.minimum_stake:
+            raise ValueError("stake must be an integer meeting minimum_stake")
+        if self.manifest:
+            if self.validator_stakes.get(self.wallet.public_key_pem) != amt:
+                raise ValueError("stake must equal this validator's genesis reservation")
+            self.reset_stake_snapshot()
+            self.staked_amt = amt
+            return next(s for s in self.current_stakes if s.staker == self.wallet.public_key_pem)
+        if amt > self.chain.calc_balance(self.wallet.public_key_pem, self.mem_pool):
+            raise ValueError("stake exceeds available balance")
+        if self.wallet.public_key_pem in self.current_stakers:
+            raise ValueError("validator is already registered")
         stake = Stake(self.wallet.public_key_pem, amt)
         stake.sign = self.wallet.private_key.sign(str(stake).encode())
         self.current_stakers[self.wallet.public_key_pem] = amt
@@ -1154,6 +1248,9 @@ class Peer:
             return
         if not applied:
             return
+
+        if self.activate_disk_save == "y":
+            self.save_chain_to_disk()
 
         pkt={
             "type":"slash_announcement",
@@ -1200,6 +1297,7 @@ class Peer:
             self.server_connections.discard(websocket)
             self.admitted.discard(websocket)
             self.ws_public_keys.pop(websocket, None)
+            self._room_challenges.pop(websocket, None)
             await websocket.close()
             await websocket.wait_closed()
 
@@ -1561,6 +1659,7 @@ class Peer:
             if(websocket):
                 self.admitted.discard(websocket)
                 self.ws_public_keys.pop(websocket, None)
+                self._room_challenges.pop(websocket, None)
                 self.client_connections.discard(websocket)
                 self.got_pong.pop(websocket, None)
                 self.have_sent_peer_info.pop(websocket, None)
@@ -1624,6 +1723,9 @@ class Peer:
         """
             Used for sending stake announcements
         """
+        if self.manifest:
+            self.register_stake(amt)
+            return
         new_stake=Stake(self.wallet.public_key_pem, amt)
         stake_dict=new_stake.to_dict()
 
@@ -1654,8 +1756,7 @@ class Peer:
             if(currTime-self.last_epoch_end_ts>timedelta(seconds=self.epoch_time*7/6)):
                 self.last_epoch_end_ts=datetime.now()
                 self.staked_amt=0
-                self.current_stakers.clear()
-                self.current_stakes.clear()
+                self.reset_stake_snapshot()
 
     def try_produce_block(self):
         """
@@ -1693,6 +1794,8 @@ class Peer:
         newBlock.sign=self.wallet.private_key.sign(str(newBlock).encode())
 
         with self.state_lock:
+            if not self.chain.isValidBlock(newBlock, self.ledger):
+                return None
             self.chain.chain.append(newBlock)
             self.commit_block_events(newBlock)
         self.last_epoch_end_ts=datetime.now()
@@ -1701,8 +1804,7 @@ class Peer:
                 self.deploy_contract(transaction)
 
         self.staked_amt=0
-        self.current_stakers.clear()
-        self.current_stakes.clear()
+        self.reset_stake_snapshot()
         return newBlock
 
     async def stake_and_schedule(self, amt: int) -> bool:
@@ -1721,8 +1823,7 @@ class Peer:
             if time_since>timedelta(seconds=self.epoch_time*7/6):
                 self.last_epoch_end_ts=datetime.now()
                 self.staked_amt=0
-                self.current_stakers.clear()
-                self.current_stakes.clear()
+                self.reset_stake_snapshot()
                 time_since=timedelta(seconds=0)
             else:
                 print(f"\nStake registration period closed, next epoch in {self.epoch_time-time_since.total_seconds():.1f}s\n")
@@ -1731,7 +1832,7 @@ class Peer:
         if amt<=0 or amt<self.params.minimum_stake:
             print("\nInvalid amount\n")
             return False
-        if amt>self.chain.calc_balance(self.wallet.public_key_pem, self.mem_pool, list(self.current_stakes)):
+        if not self.manifest and amt>self.chain.calc_balance(self.wallet.public_key_pem, self.mem_pool, list(self.current_stakes)):
             print("\nInsufficient bank balance\n")
             return False
 
@@ -1775,8 +1876,7 @@ class Peer:
                 print("\nNo block produced this epoch\n")
                 self.last_epoch_end_ts=datetime.now()
                 self.staked_amt=0
-                self.current_stakers.clear()
-                self.current_stakes.clear()
+                self.reset_stake_snapshot()
                 return
 
             print("\nYou won\n")

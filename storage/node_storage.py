@@ -77,6 +77,12 @@ class NodeStorage:
     def load_chain(self):
         return self._read("chain.json")
 
+    def save_evidence(self, records):
+        self._write("evidence.json", records)
+
+    def load_evidence(self):
+        return self._read("evidence.json") or []
+
     def save_manifest(self, manifest):
         existing = self._read("manifest.json")
         if existing is not None and existing != manifest:

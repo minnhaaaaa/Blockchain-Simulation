@@ -217,6 +217,19 @@ def test_heavier_chain_wins_and_longer_breaks_weight_tie():
     assert not core.better_chain(light, heavy)
 
 
+def test_finalized_block_cannot_be_replaced_by_a_longer_fork():
+    wallet, blocks = new_chain(blocks=3)
+    current = install(blocks)
+    current.params = core.ConsensusParams(1000, 1000, 1, 8, 0, 1)
+    alternative = make_block(blocks[0], wallet, [make_stake(wallet, 5)])
+    fork = [blocks[0], alternative]
+    for _ in range(3):
+        fork.append(make_block(fork[-1], wallet, [make_stake(wallet, 5)]))
+    assert core.better_chain(fork, blocks)
+    assert not current.rewrite(fork)
+    assert current.chain == blocks
+
+
 # ---- double signing ------------------------------------------------------
 
 def _conflicting_pair(w, prev):

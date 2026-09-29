@@ -24,12 +24,13 @@ Branch: `dev1/protocol-consensus` (based on `main` at `144ae83`, plus `origin/se
 * **Genesis trust anchor.** With a manifest, the genesis block is derived deterministically from the signed manifest; a chain whose first block hashes differently is rejected, however validly self-signed. Sockets are admitted only after a `room_hello` carrying the same room id and genesis hash. Manifest-less legacy CLI use still works and prints a warning. PoA takes an optional `genesis_hash` (the frozen manifest schema is PoS-only).
 * **PoA authority.** The set for block N is derived from genesis plus administrator-signed updates carried in earlier blocks (effective height `max(activation, inclusion+1)`, unique update ids). A block's `miners_list` must equal the derived set; it is never a source of authority.
 * **Rejection.** `submit_event` raises `SubmissionRejected` (with `.code`) and never queues an invalid event. Events dropped later (reorg, invalidated pool entries) emit `ledger_state: rejected`; orphaned-but-valid events return to `submitted`.
+* **Slashing evidence.** Two independently signed conflicting blocks are persisted in a versioned per-node evidence sidecar and included in chain synchronization. A restart revalidates both signatures and reapplies the penalty once.
 * **Signer.** Loaded/created by `load_or_create_signer` at `<data-root>/.identity/<node-id>/` (the room is unknown at boot) and copied into `<data-root>/<room-id>/<node-id>/` on join; a differing key already stored for a room is refused.
 * **Assumption:** default `Authority` treats a job's accepted worker as the gateway for that job. Inject `Authority(is_gateway=..., is_validator=...)` to change it.
 
 ## Known limits
 
-* Chain *synchronisation* validates snapshot consistency (signatures, uniqueness, order, positive amounts, affordability, creator stake) but cannot prove completeness: stake announcements are gossip, not on-chain. Completeness is enforced by exact equality on live blocks only.
+* Room manifests now commit each validator's reserved `stake` in the genesis allocations. Chain synchronization and live validation require exact equality with that signed registry. Room stake weights are fixed until an authenticated stake-change protocol is added; legacy manifest-less CLI staking retains its educational gossip behavior.
 * PoW `mal_node.py` is still a stale copy (unchanged apart from the shared canonical transaction encoding).
 * Peer summaries' `last_seen_ms` comes from signalling membership when known, otherwise first observation.
 * `agentguard/schema_validation.py` gained `anyOf` support: without it every `join` room-session request was rejected.

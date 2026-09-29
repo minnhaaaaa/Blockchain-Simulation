@@ -130,6 +130,13 @@ class PosNodeService:
             events += [e for e in peer.event_pool if e["job_id"] == job_id]
             return _copy(sorted(events, key=lambda e: e["sequence"]))
 
+    def list_all_events(self) -> List[dict]:
+        peer = self._peer_provider()
+        if peer is None or peer.chain is None:
+            return []
+        with peer.state_lock:
+            return _copy([event for block in peer.chain.chain for event in block.events] + list(peer.event_pool))
+
     def _block_summary(self, peer, height: int, finalized: int) -> dict:
         block = peer.chain.chain[height]
         return {
@@ -199,7 +206,8 @@ class PosNodeService:
                     "node_id": member["node_id"], "name": member["name"],
                     "advertised_host": member["advertised_host"], "advertised_port": member["advertised_port"],
                     "public_key_fingerprint": fp, "discovery_state": "discovered",
-                    "connection_state": "disconnected", "last_seen_ms": member["last_heartbeat_ms"],
+                    "connection_state": "connected" if any(fingerprint(k) == fp for k in connected_keys) else "disconnected",
+                    "last_seen_ms": member["last_heartbeat_ms"],
                 })
         return items
 

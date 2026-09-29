@@ -111,6 +111,19 @@ def test_chain_built_on_manifest_genesis_validates(tmp_path):
     assert isvalidChain([genesis, block], genesis_hash(room["manifest"]), params=peer.params)
 
 
+def test_chain_sync_rejects_omitted_genesis_committed_validator():
+    owner, second = Wallet(), Wallet()
+    manifest = make_manifest(owner, allocations=[
+        {"public_key": owner.public_key_pem, "amount": 1000, "stake": 500},
+        {"public_key": second.public_key_pem, "amount": 1000, "stake": 500},
+    ])
+    genesis = build_genesis(manifest)
+    forged = make_block(genesis, owner, [make_stake(owner, 500)])
+    assert not isvalidChain([genesis, forged], genesis_hash(manifest))
+    changed_weight = make_block(genesis, owner, [make_stake(owner, 900), make_stake(second, 100)])
+    assert not isvalidChain([genesis, changed_weight], genesis_hash(manifest))
+
+
 def test_unanchored_genesis_with_multiple_allocations_needs_manifest():
     a, b = Wallet(), Wallet()
     m = make_manifest(a, allocations=[{"public_key": a.public_key_pem, "amount": 10}, {"public_key": b.public_key_pem, "amount": 20}])
@@ -145,6 +158,31 @@ def test_restart_reloads_and_revalidates_chain(tmp_path):
     with pytest.raises(ValueError):
         Peer("127.0.0.1", 0, "again", True, "y", "n", manifest=room["manifest"], storage=peer.storage,
              event_rules=peer.event_rules)
+
+
+def test_signed_double_sign_evidence_survives_restart(tmp_path):
+    from consensus.pos.p2p import Peer
+    from tests.factory import JobScript
+    from tests.pos_helpers import resign
+    room = make_solo_room(str(tmp_path))
+    peer, creator, service = room["peer"], room["creator"], room["service"]
+    script = JobScript(room["manifest"]["room_id"], creator, Wallet(), clock=room["clock"])
+    service.submit_event(script.created())
+    assert service.produce_block(stake_amount=5)
+    first = peer.chain.chain[1]
+    conflicting = make_block(peer.chain.chain[0], creator, [make_stake(creator, 5)])
+    conflicting.events = list(first.events)
+    resign(conflicting, creator)
+    assert first.hash != conflicting.hash
+    assert peer.chain.apply_double_sign_evidence(first, conflicting, 1)
+    balance = peer.chain.calc_balance(creator.public_key_pem)
+    peer.save_chain_to_disk()
+
+    restored = Peer("127.0.0.1", 0, "restored", True, "y", "n", manifest=room["manifest"],
+                    storage=peer.storage, event_rules=peer.event_rules)
+    assert restored.chain.slashed_keys == peer.chain.slashed_keys
+    assert restored.chain.chain[1].slash_creator
+    assert restored.chain.calc_balance(creator.public_key_pem) == balance
 
 
 # ---- blocks carrying events ------------------------------------------------

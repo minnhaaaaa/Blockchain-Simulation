@@ -18,6 +18,7 @@ Schema fields, enum members, API paths, and reason-code formats are protocol str
 - Public keys are PEM strings at the API boundary. UI summaries display a derived fingerprint, never a private key.
 - Unknown object fields are rejected where the schemas specify `additionalProperties: false`.
 - Monetary/stake simulation values are non-negative integers. Floating-point values are not used in signed consensus structures.
+- Every genesis allocation carries an explicit `stake` integer. Zero identifies a non-validator; positive values reserve that amount for the room's immutable validator registry, must be affordable from the allocation, and must meet `minimum_stake`. This registry is committed by the signed manifest and genesis hash; live and synchronized PoS blocks must carry the exact same validator set and amounts.
 - Array ordering is meaningful unless a schema and this document explicitly say otherwise.
 
 ## 3. Canonical JSON, hashing, and signing

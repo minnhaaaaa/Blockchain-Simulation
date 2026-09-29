@@ -153,6 +153,7 @@ def validate_stake_snapshot(
     declared_stake: int,
     minimum_stake: int = 1,
     require_sorted: bool = True,
+    authenticated: Optional[Dict[str, int]] = None,
 ) -> int:
     """
     Validate an ordered stake snapshot and return the total stake.
@@ -164,13 +165,15 @@ def validate_stake_snapshot(
     total = 0
     creator_stake = None
     previous = None
+    if authenticated is not None and not snapshot_matches(stakes, authenticated):
+        raise ConsensusError("SNAPSHOT_MISMATCH", "snapshot must exactly equal the genesis-committed validator registry")
     for stake in stakes:
         if not _is_int(stake.amt) or stake.amt < minimum_stake or stake.amt <= 0:
             raise ConsensusError("BAD_STAKE_AMOUNT", "stake must be a positive integer")
         if stake.staker in seen:
             raise ConsensusError("DUPLICATE_STAKER", "stake identities must be unique")
         seen.add(stake.staker)
-        if not verify_signature(stake.staker, stake.sign, str(stake)):
+        if authenticated is None and not verify_signature(stake.staker, stake.sign, str(stake)):
             raise ConsensusError("INVALID_STAKE_SIGNATURE", "stake signature does not verify")
         if require_sorted and previous is not None and stake.staker < previous:
             raise ConsensusError("SNAPSHOT_NOT_ORDERED", "stake snapshot is not deterministically ordered")
@@ -195,6 +198,11 @@ def snapshot_matches(stakes: Iterable[Any], authenticated: Dict[str, int]) -> bo
             return False
         block_view[stake.staker] = stake.amt
     return block_view == dict(authenticated)
+
+
+def committed_snapshot(genesis: Any) -> Optional[Dict[str, int]]:
+    """Room snapshots are authenticated by the manifest-derived genesis hash."""
+    return genesis.files.get("validator_stakes") if isinstance(genesis.files, dict) else None
 
 
 # --------------------------------------------------------------------------

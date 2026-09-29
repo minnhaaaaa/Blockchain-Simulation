@@ -20,7 +20,7 @@ from agentguard.room_session import RoomSessionError
 from consensus.pos.manifest import ManifestError, verify_manifest
 from consensus.pos.node_service import PosNodeService, fingerprint
 from consensus.pos.p2p import Peer, normalize_endpoint
-from storage.node_storage import LegacyStorageError, NodeStorage, StorageConfigError, STORAGE_FORMAT_VERSION
+from storage.node_storage import LegacyStorageError, NodeStorage, StorageConfigError, STORAGE_FORMAT_VERSION, _component
 
 IDENTITY_DIR = ".identity"      # not a valid room id, so it can never collide with a room directory
 
@@ -34,7 +34,7 @@ def load_or_create_signer(data_root: str, node_id: str) -> EcdsaSigner:
     """
     if not data_root or not node_id:
         raise StorageConfigError("data_root and node_id are required")
-    directory = os.path.join(os.path.abspath(data_root), IDENTITY_DIR, node_id)
+    directory = os.path.join(os.path.abspath(data_root), IDENTITY_DIR, _component("node_id", node_id))
     path = os.path.join(directory, "signer.json")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as fh:
@@ -104,6 +104,8 @@ class PosNodeRuntime:
                 pass
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._thread.join(timeout=5)
+            if not self._thread.is_alive() and not self._loop.is_closed():
+                self._loop.close()
 
     # ---- RoomSessionCoordinator callback ---------------------------------
 
@@ -157,6 +159,10 @@ class PosNodeRuntime:
             elif EcdsaSigner.from_pem(stored).public_key_pem != self.signer.public_key_pem:
                 raise RoomSessionError("the key persisted for this room differs from the runtime signer")
             params = manifest["consensus"]["parameters"]
+            if self.stake_amount is not None:
+                allocations = {a["public_key"]: a["stake"] for a in manifest["genesis"]["allocations"]}
+                if allocations.get(self.signer.public_key_pem) != self.stake_amount:
+                    raise RoomSessionError("configured stake_amount differs from the signed genesis reservation")
             peer = Peer(self.bind_host, self.bind_port, self.node_name, True, "y", "y", manifest=manifest, storage=storage,
                         event_rules={"max_clock_skew_ms": params["max_clock_skew_ms"],
                                      "max_event_bytes": self.max_event_bytes, "authority": self.authority})
@@ -184,6 +190,10 @@ class PosNodeRuntime:
         pending: Dict[str, tuple] = {}
         for member in members:
             if member["public_key_fingerprint"] == own_fp or member["node_id"] == self.node_id:
+                continue
+            if any(fingerprint(public_key) == member["public_key_fingerprint"]
+                   for ws, public_key in peer.ws_public_keys.items() if ws in peer.admitted):
+                report["connected"].append(member["node_id"])
                 continue
             try:
                 endpoint = normalize_endpoint((member["advertised_host"], member["advertised_port"]))

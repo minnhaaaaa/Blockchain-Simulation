@@ -1,5 +1,7 @@
 # Claims Audit
 
+Historical audit at commit `144ae83`. The merged revision and remaining gaps are recorded in `INTEGRATION_REVIEW.md`; several findings below have since been fixed.
+
 Initial audit: 2026-09-29 21:39:58 +05:30
 
 Re-audit of `origin/main` `144ae83`: 2026-09-29 21:56:37 +05:30

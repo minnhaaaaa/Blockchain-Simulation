@@ -38,6 +38,13 @@ def verify_manifest(manifest: Any, expected_room_id: str = None) -> Dict[str, An
     keys = [a["public_key"] for a in manifest["genesis"]["allocations"]]
     if len(set(keys)) != len(keys):
         raise ManifestError("VALIDATION_FAILED", "genesis allocations must have unique public keys")
+    minimum = manifest["consensus"]["parameters"]["minimum_stake"]
+    for allocation in manifest["genesis"]["allocations"]:
+        stake = allocation["stake"]
+        if stake > allocation["amount"] or (stake and stake < minimum):
+            raise ManifestError("VALIDATION_FAILED", "validator stake must be affordable and meet minimum_stake")
+    if not any(a["stake"] for a in manifest["genesis"]["allocations"]):
+        raise ManifestError("VALIDATION_FAILED", "room requires at least one validator with reserved stake")
     return manifest
 
 
@@ -56,6 +63,11 @@ def build_genesis(manifest: Dict[str, Any]) -> Block:
         )
     block = Block(None, transactions, ts=genesis_desc["created_at_ms"], id=genesis_desc["block_id"])
     block.creator = manifest["creator_public_key"]
+    # The signed manifest commits the complete validator registry into the
+    # genesis hash. Gossip can never add, omit or reweight a validator.
+    block.files = {"validator_stakes": {
+        a["public_key"]: a["stake"] for a in genesis_desc["allocations"] if a["stake"]
+    }}
     return block
 
 
