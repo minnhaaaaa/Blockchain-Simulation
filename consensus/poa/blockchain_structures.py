@@ -9,10 +9,13 @@ from shared_blockchain_structures import (
     CommonChain,
     Wallet,
     txs_to_json_digestable_form,
-    transaction_exists_in_block_list
+    transaction_exists_in_block_list,
+    verify_signature
 )
 
 GAS_PRICE = 0.001 # coin per gas unit
+MINER_REWARD = 6
+GENESIS_ALLOCATION = 50
 
 class Block(BaseBlock):
     def __init__(self, prevHash:str, transactions:List[Transaction], ts=None, id=None):
@@ -57,18 +60,15 @@ class Block(BaseBlock):
     
     def is_valid_signature(self):
         try:
-            # Load public key from PEM string
-            public_key = VerifyingKey.from_pem(self.miner_public_key.encode())
-
-            message = self.get_message_to_sign()
             signature = binascii.unhexlify(self.signature)
-
-            public_key.verify(signature, message)
-            print("\nValid Block\n")
-            return True
         except Exception as e:
-            print(f"Invalid block signature: {e}")
+            print(f"Invalid block signature encoding: {e}")
             return False
+
+        if not verify_signature(self.miner_public_key, signature, self.get_message_to_sign()):
+            print("Invalid block signature")
+            return False
+        return True
 
 def valid_chain_length(i):
     valid_chain_len=i # because we use zero indexing
@@ -90,7 +90,7 @@ def calc_balance_block_list(block_list:List[Block], publicKey, i, pending_transa
                 bal+=transaction.payload
                 
         if block_list[i].miner_public_key==publicKey:
-            bal+=6 #Miner reward
+            bal+=MINER_REWARD #Miner reward
         
     if pending_transactions:
         for transaction in pending_transactions:
@@ -120,7 +120,7 @@ class Chain(CommonChain):
             return
 
         if publicKey and not blockList:
-            genesis_block = Block(None, [Transaction(50, "Genesis", publicKey)])
+            genesis_block = Block(None, [Transaction(GENESIS_ALLOCATION, "Genesis", publicKey)])
             super().__init__(genesis_block=genesis_block)
 
         elif blockList and not publicKey:
@@ -150,23 +150,35 @@ class Chain(CommonChain):
             return False
         
         mem_pool=[]
+        seen_ids=set()
         for transaction in block.transactions:
+            if transaction.sender=="Genesis":
+                print("\nOnly the genesis block may mint coins\n")
+                return False
+
             if Chain.instance.transaction_exists_in_chain(transaction):
                 print("Duplicate transaction(s)")
                 return False
-            sign_bytes=transaction.sign
-            try:
-                public_key=VerifyingKey.from_pem(transaction.sender.encode())
-                public_key.verify(sign_bytes, str(transaction).encode())
-            except:
+
+            # Repeats inside a single block were never rejected.
+            if transaction.id in seen_ids:
+                print("Duplicate transaction(s) within block")
+                return False
+            seen_ids.add(transaction.id)
+
+            if not verify_signature(transaction.sender, transaction.sign, str(transaction)):
                 print("\nInvalid Signature On Transaction\n")
                 return False
-            
+
             amount = 0
             if transaction.receiver == "deploy" or transaction.receiver == "invoke":
+                if not isinstance(transaction.payload, list) or not transaction.payload:
+                    return False
                 amount = transaction.payload[-1]
             else:
                 amount = transaction.payload
+            if not isinstance(amount, (int, float)) or isinstance(amount, bool):
+                return False
             if amount>Chain.instance.calc_balance(publicKey=transaction.sender,pending_transactions=mem_pool) or amount<=0: 
                 # we have to make sure the current transactions are included when checking for balance
                 return False
@@ -196,7 +208,7 @@ class Chain(CommonChain):
                 elif transaction.receiver==publicKey:
                     bal+=transaction.payload
             if Chain.instance.chain[i].miner_public_key==publicKey:
-                bal+=6 #Miner reward
+                bal+=MINER_REWARD #Miner reward
         
         # Since these transactions arevalid not part of the chain we don't add
         # the money they gained yet because it could be invalid, but we subtract
@@ -215,31 +227,93 @@ class Chain(CommonChain):
 
 # Is valid chain function
 def isvalidChain(blockList:List[Block]):
+    """
+        Validate a chain offered by a peer.
+
+        Proof of authority rests entirely on *who* signed each block, and that
+        was never checked here: a block only had to carry a signature matching
+        the public key it named itself. Any node could therefore mint a longer
+        chain naming itself as the miner of every block, sign each one with its
+        own key, and have honest nodes adopt it. Authority is now traced from
+        the genesis block forward - each block must be signed by a node the
+        previous block already listed as a miner, under the public key that
+        node id was first seen with.
+    """
+    if not blockList:
+        return False
+
+    genesis=blockList[0]
+    if genesis.prevHash:
+        print("\nGenesis block must not have a previous hash\n")
+        return False
+    if len(genesis.transactions)!=1:
+        print("\nGenesis block must hold exactly one transaction\n")
+        return False
+    genesis_tx=genesis.transactions[0]
+    if genesis_tx.sender!="Genesis" or genesis_tx.payload!=GENESIS_ALLOCATION:
+        print("\nInvalid genesis allocation\n")
+        return False
+    if not genesis.miners_list or genesis.miner_node_id not in genesis.miners_list:
+        print("\nGenesis block must be signed by an authority it lists\n")
+        return False
+
+    # node id -> public key, bound at the first block a node signs.
+    node_keys={}
+
     for i in range(len(blockList)):
         currBlock=blockList[i]
-        
+
         if(not currBlock.is_valid_signature()):
             return False
-        
+
+        if not currBlock.miner_node_id or not currBlock.miner_public_key:
+            print("\nBlock does not identify its miner\n")
+            return False
+
+        known_key=node_keys.get(currBlock.miner_node_id)
+        if known_key is None:
+            node_keys[currBlock.miner_node_id]=currBlock.miner_public_key
+        elif known_key!=currBlock.miner_public_key:
+            print("\nMiner node id bound to a different public key\n")
+            return False
+
         if(i<=0):
             continue
 
+        prev_miners=blockList[i-1].miners_list or []
+        if currBlock.miner_node_id not in prev_miners:
+            print("\nBlock mined by a node that was not an authority\n")
+            return False
+
         mem_pool=[]
+        seen_ids=set()
         for transaction in blockList[i].transactions:
-            sign=transaction.sign
+            if transaction.sender=="Genesis":
+                print("\nOnly the genesis block may mint coins\n")
+                return False
+
             if not transaction.is_valid_signature():
                 return False
 
             if(transaction_exists_in_block_list(blockList, transaction, i)):
                 print("Duplicate transaction(s)")
                 return False
-            
+
+            if transaction.id in seen_ids:
+                print("Duplicate transaction(s) within block")
+                return False
+            seen_ids.add(transaction.id)
+
             amount = 0
             if(transaction.receiver == "deploy" or transaction.receiver == "invoke"):
+                if not isinstance(transaction.payload, list) or not transaction.payload:
+                    return False
                 amount = transaction.payload[-1]
             else:
                 amount = transaction.payload
-            if(calc_balance_block_list(blockList, transaction.sender, i, mem_pool) < amount  or amount<=0):
+            if not isinstance(amount, (int, float)) or isinstance(amount, bool):
+                return False
+            if(amount<=0 or calc_balance_block_list(blockList, transaction.sender, i, mem_pool) < amount):
                 return False
             
             mem_pool.append(transaction)

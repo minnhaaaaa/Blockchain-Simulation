@@ -1,10 +1,18 @@
 import asyncio, websockets
+from websockets.exceptions import ConnectionClosed
 import json, uuid, base64
 from typing import Set, Dict, List, Tuple
 import copy
 import threading
 import socket
 from consensus.poa.blockchain_structures import Transaction, Block, Wallet, Chain, isvalidChain
+from shared_blockchain_structures import (
+    verify_signature,
+    remember_message_id,
+    resolve_host,
+    validate_port,
+    MAX_KNOWN_PEERS,
+)
 from ipfs.ipfs import addToIpfs, download_ipfs_file_subprocess
 from smart_contract.contracts_db import SmartContractDatabase
 from smart_contract.secure_executor import SecureContractExecutor
@@ -22,6 +30,7 @@ MAX_CONNECTIONS = 8
 GAS_PRICE = 0.001 # coin per gas unit
 BASE_DEPLOY_COST = 5
 CONSENSUS ="poa"
+MAX_PENDING_MINER_UPDATES = 64
 
 def get_random_element(s):
     """
@@ -33,9 +42,13 @@ def get_random_element(s):
 def normalize_endpoint(ep):
     """
         Return host resolved into ipv4 address and port converted into int datatype - maintains consistency in the code
+
+        Host and port arrive from peer messages, so they are validated here;
+        an out of range port or a host crafted to make us issue an unbounded
+        blocking DNS lookup used to reach socket.gethostbyname unchecked.
     """
     host, port = ep
-    return (socket.gethostbyname(host), int(port))
+    return (resolve_host(host), validate_port(port))
 
 def get_contract_code_from_notepad():
     # Create a temporary file with a .py extension
@@ -91,6 +104,8 @@ class Peer:
                 self.save_node_id_to_disk()
 
         self.miners: List[list]= list() # List of [miners_list, activation_block]
+        self.miner_updates: List[dict]= list() # The signed packets behind self.miners
+        self.pending_miner_updates: List[dict]= list() # Awaiting a chain to verify them against
 
         self.server_connections :Set[websockets.WebSocketServerProtocol]=set() # For inbound peers ie websockets that connect to us and treat us as the server
         self.client_connections :Set[websockets.WebSocketServerProtocol]=set() # For outbound peers ie websockets we initiated, we are the clients
@@ -216,7 +231,7 @@ class Peer:
         self.known_peers = {}
         for key, value in content.items():
             self.known_peers[tuple(ast.literal_eval(key))] = tuple(value)
-        for key, value in self.known_peers:
+        for key, value in self.known_peers.items():
             self.name_to_public_key_dict[value[0].lower()] = value[1]
             self.node_id_to_name_dict[value[2]] = value[0].lower()
             self.name_to_node_id_dict[value[0].lower()] = value[2]
@@ -237,7 +252,7 @@ class Peer:
                 }
         }
 
-        self.seen_message_ids.add(pkt["id"])
+        remember_message_id(self.seen_message_ids, pkt["id"])
 
         return pkt
 
@@ -255,7 +270,7 @@ class Peer:
             "peers":peers
         }
 
-        self.seen_message_ids.add(pkt["id"])
+        remember_message_id(self.seen_message_ids, pkt["id"])
 
         return pkt
 
@@ -269,8 +284,80 @@ class Peer:
         message = json.dumps(pkt, sort_keys=True).encode()
         signature = self.wallet.private_key.sign(message)
         pkt["signature"] = signature.hex()
-        self.seen_message_ids.add(pkt["id"])
+        remember_message_id(self.seen_message_ids, pkt["id"])
+        self.miner_updates.append(pkt)
         await self.broadcast_message(pkt)
+
+    def get_admin_public_key(self):
+        """
+            The admin is whoever signed the genesis block, and the genesis
+            block carries their public key.
+
+            Looking the key up in known_peers instead, as this used to, meant
+            trusting a table filled in from unauthenticated peer_info and
+            new_peer messages: a peer could announce itself with the admin's
+            node id and its own public key, and then sign its own miners-list
+            updates.
+        """
+        if not Chain.instance or not Chain.instance.chain:
+            return None
+        return Chain.instance.chain[0].miner_public_key
+
+    def verify_miner_update(self, pkt):
+        """
+            Check one miners_list_update packet against the admin's key.
+        """
+        admin_public_key = self.get_admin_public_key()
+        if not admin_public_key or not isinstance(pkt, dict):
+            return False
+
+        miners_list = pkt.get("miners_list")
+        activation_block = pkt.get("activation_block")
+        signature_hex = pkt.get("signature")
+
+        if not isinstance(miners_list, list) or not miners_list:
+            return False
+        if any(not isinstance(node_id, str) for node_id in miners_list):
+            return False
+        if not isinstance(activation_block, int) or isinstance(activation_block, bool) or activation_block < 0:
+            return False
+        if not isinstance(signature_hex, str):
+            return False
+
+        message = json.dumps({
+            "type": "miners_list_update",
+            "id": pkt.get("id"),
+            "miners_list": miners_list,
+            "activation_block": activation_block,
+        }, sort_keys=True).encode()
+
+        try:
+            signature = binascii.unhexlify(signature_hex)
+        except Exception:
+            return False
+
+        return verify_signature(admin_public_key, signature, message)
+
+    def apply_network_details(self):
+        """
+            Derive the admin from the chain we just validated, then re-verify
+            every miners-list update a peer handed us against that admin.
+        """
+        if not Chain.instance or not Chain.instance.chain:
+            return
+        self.admin_id = Chain.instance.chain[0].miner_node_id
+
+        pending = self.pending_miner_updates
+        self.pending_miner_updates = []
+        for pkt in pending:
+            if not self.verify_miner_update(pkt):
+                print("Discarding unsigned miners list update")
+                continue
+            if any(existing.get("id") == pkt.get("id") for existing in self.miner_updates):
+                continue
+            self.miner_updates.append(pkt)
+            self.miners.append([pkt["miners_list"], pkt["activation_block"]])
+        self.miners.sort(key=lambda entry: entry[1])
 
     def block_dict_to_block(self, block_dict):    
         """
@@ -305,6 +392,21 @@ class Peer:
         return newBlock
 
     def get_public_key_by_node_id(self, target_node_id):
+        """
+            Resolve a miner's node id to its public key.
+
+            The chain is consulted first: every block binds its miner_node_id
+            to its miner_public_key under a signature we have already checked.
+            known_peers is filled in from unauthenticated peer_info and
+            new_peer messages, so consulting it alone let any peer claim an
+            existing miner's node id with its own key and have its blocks
+            accepted as that miner's.
+        """
+        if Chain.instance:
+            for block in Chain.instance.chain:
+                if block.miner_node_id == target_node_id and block.miner_public_key:
+                    return block.miner_public_key
+
         for (host, port), (name, public_key, node_id) in self.known_peers.items():
             if node_id == target_node_id:
                 return public_key
@@ -321,7 +423,7 @@ class Peer:
                     break
         else:
             miners_list = Chain.instance.chain[-1].miners_list
-        return miners_list
+        return miners_list or []
 
     def discard_server_connection_details(self, websocket):
         self.server_connections.discard(websocket)
@@ -348,6 +450,15 @@ class Peer:
                     await self.miner_task
                 except asyncio.CancelledError:
                     pass
+
+    async def restart_round_task(self):
+        if self.round_task:
+            self.round_task.cancel()
+            try:
+                await self.round_task
+            except asyncio.CancelledError:
+                pass
+        self.round_task = asyncio.create_task(self.round_calculator())
 
     async def round_calculator(self):
         self.round = 0
@@ -428,26 +539,20 @@ class Peer:
         if id in self.seen_message_ids:
             return
         
-        self.seen_message_ids.add(id)
+        remember_message_id(self.seen_message_ids, id)
 
         if t=="miners_list_update":
-            try:
-                public_key = VerifyingKey.from_pem(self.get_public_key_by_node_id(self.admin_id).encode())
-
-                message = json.dumps({
-                    "type":"miners_list_update",
-                    "id":msg["id"],
-                    "miners_list":msg["miners_list"],
-                    "activation_block":msg["activation_block"],
-                }, sort_keys=True).encode()
-
-                signature = binascii.unhexlify(msg["signature"])
-
-                public_key.verify(signature, message)
-            except Exception as e:
-                print(f"Invalid miners list update signature: {e}")
+            if not self.verify_miner_update(msg):
+                print("Invalid miners list update signature")
                 return
+            if len(self.miners) >= MAX_PENDING_MINER_UPDATES:
+                print("Too many pending miners list updates")
+                return
+            if any(existing.get("id") == msg.get("id") for existing in self.miner_updates):
+                return
+            self.miner_updates.append(msg)
             self.miners.append([msg["miners_list"], msg["activation_block"]])
+            self.miners.sort(key=lambda entry: entry[1])
             await self.broadcast_message(msg)
 
         elif t=="ping":
@@ -457,7 +562,7 @@ class Peer:
                 "id":str(uuid.uuid4())
                 }
             
-            self.seen_message_ids.add(pkt["id"])
+            remember_message_id(self.seen_message_ids, pkt["id"])
 
             await self.send_message(websocket, pkt, False)
 
@@ -476,6 +581,8 @@ class Peer:
             normalized_self=normalize_endpoint((self.host, self.port))
             normalized_endpoint = normalize_endpoint((data["host"], data["port"]))
             if normalized_endpoint not in self.known_peers and normalized_endpoint!=normalized_self :
+                if len(self.known_peers) >= MAX_KNOWN_PEERS:
+                    return
                 self.known_peers[normalized_endpoint]=(data["name"], data["public_key"], data["node_id"])
                 if self.activate_disk_save == "y":
                     self.save_known_peers_to_disk()
@@ -524,7 +631,7 @@ class Peer:
                         "node_id":data["node_id"]
                     }
                 }
-                self.seen_message_ids.add(pkt["id"])
+                remember_message_id(self.seen_message_ids, pkt["id"])
                 await self.broadcast_message(pkt)
 
         elif t=="new_peer":
@@ -532,6 +639,8 @@ class Peer:
             normalized_self=normalize_endpoint((self.host, self.port))
             normalized_endpoint = normalize_endpoint((data["host"], data["port"]))
             if normalized_endpoint not in self.known_peers and normalized_endpoint!=normalized_self :
+                if len(self.known_peers) >= MAX_KNOWN_PEERS:
+                    return
                 self.known_peers[normalized_endpoint]=(data["name"], data["public_key"], data["node_id"])
                 if self.activate_disk_save == "y":
                     self.save_known_peers_to_disk()
@@ -542,12 +651,14 @@ class Peer:
                 await self.broadcast_message(msg)
 
         elif t=="change_name":
-            del self.name_to_node_id_dict[self.name]
-            new_name = msg["new_name"]
+            new_name = msg.get("new_name")
+            if not isinstance(new_name, str) or not new_name.strip():
+                return
+            self.name_to_node_id_dict.pop(self.name, None)
             self.name = new_name
             self.name_to_node_id_dict[self.name] = self.node_id
             self.node_id_to_name_dict[self.node_id] = self.name
-            self.seen_message_ids.add(msg["new_peer_msg_id"])
+            remember_message_id(self.seen_message_ids, msg["new_peer_msg_id"])
 
         elif t=="known_peers":
             # print("Received Known Peers")
@@ -557,6 +668,8 @@ class Peer:
                 normalized_self=normalize_endpoint((self.host, self.port))
                 normalized_endpoint = normalize_endpoint((peer["host"], peer["port"]))
                 if normalized_endpoint not in self.known_peers and normalized_endpoint!=normalized_self:
+                    if len(self.known_peers) >= MAX_KNOWN_PEERS:
+                        break
                     print(f"Discovered peer {peer["name"]} at {peer["host"]}:{peer["port"]}")
                     new_peer_found = True
                     self.known_peers[normalized_endpoint]=(peer["name"], peer["public_key"], peer["node_id"])
@@ -584,14 +697,24 @@ class Peer:
             pkt={
                 "type": "network_details",
                 "id":str(uuid.uuid4()),
-                "admin": self.admin_id,
-                "miners": self.miners
+                "miner_updates": self.miner_updates
             }
             await self.send_message(websocket, pkt, False)
 
         elif t=="network_details":
-            self.admin_id = msg["admin"]
-            self.miners = msg["miners"]
+            # This used to be `self.admin_id = msg["admin"]` and
+            # `self.miners = msg["miners"]`. Any peer could therefore name
+            # itself administrator of the network and install its own
+            # authority list, which is the whole of proof of authority. The
+            # admin is now taken from the genesis block instead, and each
+            # miners-list update is re-verified against the admin's signature
+            # once the chain has arrived.
+            miner_updates = msg.get("miner_updates")
+            if isinstance(miner_updates, list):
+                self.pending_miner_updates = [
+                    pkt for pkt in miner_updates[:MAX_PENDING_MINER_UPDATES]
+                    if isinstance(pkt, dict)
+                ]
             pkt={
                 "type":"chain_request",
                 "id":str(uuid.uuid4())
@@ -601,7 +724,7 @@ class Peer:
         elif t=="new_tx":
             tx_str=msg["transaction"]
             tx=json.loads(tx_str)
-            transaction: Transaction=Transaction(tx['payload'], tx['sender'], tx['receiver'], tx['id'], tx['timestamp'])
+            transaction: Transaction=Transaction(tx['payload'], tx['sender'], tx['receiver'], tx['id'], tx['ts'])
             if Chain.instance.transaction_exists_in_chain(transaction):
                 print(f"{self.name} Transaction already exists in chain")
                 return
@@ -630,10 +753,13 @@ class Peer:
                 print("\nInvalid Transaction, amount<=0\n")
                 return
 
-            try:
-                public_key=VerifyingKey.from_pem(tx['sender'].encode())
-                public_key.verify(sign_bytes, tx_str.encode())
-            except:
+            # The canonical form we store and later re-verify has to be the
+            # form that was actually signed.
+            if str(transaction)!=tx_str:
+                print("Transaction does not match its signed form")
+                return
+
+            if not verify_signature(transaction.sender, sign_bytes, tx_str):
                 print("Invalid Signature")
                 return
             
@@ -651,6 +777,9 @@ class Peer:
             new_block_dict=msg["block"]
             newBlock=self.block_dict_to_block(new_block_dict)
             miners_list = self.get_current_miners_list()
+            if not miners_list:
+                print("\nNo authority list to validate this block against\n")
+                return
             reqd_miner_node_id = miners_list[(len(Chain.instance.chain) + self.round) % len(miners_list)]
             reqd_miner_pulic_key = self.get_public_key_by_node_id(reqd_miner_node_id)
 
@@ -684,9 +813,7 @@ class Peer:
                         self.file_hashes.pop(hash, None)
 
             await self.broadcast_message(msg)
-            self.round_task.cancel()
-            await self.round_task
-            self.round_task = asyncio.create_task(self.round_calculator())
+            await self.restart_round_task()
 
             while self.miners:
                 if self.miners[0][1] < len(Chain.instance.chain):
@@ -724,14 +851,23 @@ class Peer:
             if not isvalidChain(block_list):
                 print("\nInvalid Chain\n")
                 return
+
+            # A chain rooted at a genesis block other than ours belongs to a
+            # different network, and its genesis names a different admin.
+            if Chain.instance and Chain.instance.chain and Chain.instance.chain[0].hash!=block_list[0].hash:
+                print("\nChain has a different genesis block\n")
+                return
+
             #If chain doesn't already exist we assign this as the chain
             if not self.chain:
                 self.chain=Chain(blockList=block_list)
+                self.apply_network_details()
                 if self.activate_disk_save == "y":
                     self.save_chain_to_disk()
 
             elif(len(Chain.instance.chain)<len(block_list)):
                 Chain.instance.rewrite(block_list)
+                self.apply_network_details()
                 print("\nCurrent chain replaced by longer chain")
                 if self.activate_disk_save == "y":
                     self.save_chain_to_disk()
@@ -762,10 +898,20 @@ class Peer:
         
         try:
             async for raw in websocket:
-                msg=json.loads(raw)
-                await self.handle_messages(websocket, msg)
+                try:
+                    msg=json.loads(raw)
+                    if not isinstance(msg, dict):
+                        continue
+                    await self.handle_messages(websocket, msg)
+                except ConnectionClosed:
+                    raise
+                except Exception as e:
+                    # A peer controls every byte of this message. One that is
+                    # malformed used to raise straight out of the loop and
+                    # drop the connection.
+                    print(f"Discarding bad message from {peer_addr}: {e}")
 
-        except websockets.exceptions.ConnectionClosed:
+        except ConnectionClosed:
             print(f"Inbound Connection Closed: {peer_addr}")
 
         finally:
@@ -815,7 +961,7 @@ class Peer:
             "sender_pem":self.wallet.public_key_pem # Already available as a pem string as defined in constructor
         }
         
-        self.seen_message_ids.add(pkt["id"])
+        remember_message_id(self.seen_message_ids, pkt["id"])
         if Chain.instance.transaction_exists_in_chain(transaction):
             return
         
@@ -852,8 +998,9 @@ class Peer:
             )
             try:
                 ch=int(ch)
-            except:
+            except ValueError:
                 print("\nPlease enter a valid number!!!\n")
+                continue
             if ch==1:
                 rec = await asyncio._get_running_loop().run_in_executor(
                     None, input, "\nEnter Receiver's Name or Public Key: "
@@ -1081,20 +1228,27 @@ class Peer:
                     "id":str(uuid.uuid4()),
                 } 
 
-            self.seen_message_ids.add(pkt["id"])
+            remember_message_id(self.seen_message_ids, pkt["id"])
             await self.send_message(websocket, pkt, True)
 
             async for raw in websocket:
-                msg=json.loads(raw)
-                await self.handle_messages(websocket, msg)
+                try:
+                    msg=json.loads(raw)
+                    if not isinstance(msg, dict):
+                        continue
+                    await self.handle_messages(websocket, msg)
+                except ConnectionClosed:
+                    raise
+                except Exception as e:
+                    print(f"Discarding bad message from {host}:{port}: {e}")
         except Exception as e:
             print(f"Failed to connect to {host}:{port} ::: {e}")
         finally:
-            if not websocket:
-                return
-            self.discard_client_connection_details(websocket)
-            await websocket.close()
-            await websocket.wait_closed()
+            self.outbound_peers.discard(endpoint)
+            if websocket:
+                self.discard_client_connection_details(websocket)
+                await websocket.close()
+                await websocket.wait_closed()
 
     async def discover_peers(self):
         """
@@ -1172,7 +1326,7 @@ class Peer:
             "cid":cid
         }
         
-        self.seen_message_ids.add(pkt["id"])
+        remember_message_id(self.seen_message_ids, pkt["id"])
         async with self.file_hashes_lock:
             self.file_hashes[cid]=desc
         return pkt
@@ -1266,11 +1420,9 @@ class Peer:
                                     "block":newBlock.to_dict()
                                 }
 
-                                self.seen_message_ids.add(pkt["id"])
+                                remember_message_id(self.seen_message_ids, pkt["id"])
                                 await self.broadcast_message(pkt)
-                                self.round_task.cancel()
-                                await self.round_task
-                                self.round_task = asyncio.create_task(self.round_calculator())
+                                await self.restart_round_task()
 
                                 while self.miners:
                                     if self.miners[0][1] < len(Chain.instance.chain):
@@ -1300,7 +1452,7 @@ class Peer:
                 "type":"chain_request",
                 "id":str(uuid.uuid4())
             }
-            self.seen_message_ids.add(pkt["id"])
+            remember_message_id(self.seen_message_ids, pkt["id"])
             await self.broadcast_message(pkt)
             print("\nSent out chain requests...")
             for _ in range(12):

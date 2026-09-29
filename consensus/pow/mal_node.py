@@ -1,4 +1,5 @@
 import asyncio, websockets
+from websockets.exceptions import ConnectionClosed
 import json, uuid, base64
 import threading, socket
 import os, subprocess
@@ -244,6 +245,7 @@ class Peer:
         
         newBlock=Block(new_block_prevHash, transactions, new_block_ts, new_block_nonce, new_block_id)   
         newBlock.files=block_dict["files"]
+        newBlock.miner=block_dict.get("miner")
 
         return newBlock
 
@@ -481,7 +483,6 @@ class Peer:
                     if not self.valid_deploy_transaction(transaction.payload):
                         return
 
-            newBlock.miner=msg["miner"]
             Chain.instance.chain.append(newBlock)
             print("\n\n Block Appended \n\n")
 
@@ -573,7 +574,7 @@ class Peer:
                 msg=json.loads(raw)
                 await self.handle_messages(websocket, msg)
 
-        except websockets.exceptions.ConnectionClosed:
+        except ConnectionClosed:
             print(f"Inbound Connection Closed: {peer_addr}")
 
         finally:
@@ -996,11 +997,13 @@ class Peer:
                 newBlock1.files=self.file_hashes.copy()
                 newBlock2.files=self.file_hashes.copy()
 
-                await asyncio.to_thread(Chain.instance.mine, newBlock1)
-                await asyncio.to_thread(Chain.instance.mine, newBlock2)
-
                 newBlock1.miner=self.wallet.public_key
                 newBlock2.miner=self.wallet.public_key
+
+                # The miner is hashed with the rest of the block now, so it
+                # has to be set before the nonce search.
+                await asyncio.to_thread(Chain.instance.mine, newBlock1)
+                await asyncio.to_thread(Chain.instance.mine, newBlock2)
 
                 Chain.instance.chain.append(newBlock1)
                 print("\nBlock Appended \n")

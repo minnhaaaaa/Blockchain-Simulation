@@ -1,16 +1,32 @@
 import subprocess, re, os
 
+IPFS_TIMEOUT = 120
+
+# CIDv0 is base58, CIDv1 is base32/base36 etc. Restrict to the characters
+# those alphabets can produce and cap the length: a CID reaches us over the
+# wire, and `ipfs get <cid>` would read a value beginning with "-" as a
+# command line option rather than as a CID.
+_CID_RE = re.compile(r"^[A-Za-z0-9]{10,128}$")
+
+
+def is_valid_cid(cid):
+    return isinstance(cid, str) and bool(_CID_RE.match(cid))
+
 def addToIpfs(file_path):
+    if not isinstance(file_path, str) or not os.path.isfile(file_path):
+        print("Error: refusing to add a path that is not an existing file.")
+        return None, None
     try:
         # Use the 'ipfs add' command WITHOUT the --json flag
         # Older IPFS CLIs typically output something like:
         # added QmYOURHASH /path/to/your/file.txt
         # (followed by a progress bar line)
         result = subprocess.run(
-            ['ipfs', 'add', file_path],
+            ['ipfs', 'add', '--', file_path],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=IPFS_TIMEOUT
         )
 
         output_lines = result.stdout.strip().split('\n')
@@ -42,6 +58,10 @@ def addToIpfs(file_path):
             print("Error: No output received from ipfs add command.")
             return None, None
         
+    except subprocess.TimeoutExpired:
+        print("Error: 'ipfs add' timed out.")
+        return None, None
+
     except subprocess.CalledProcessError as e:
         print(f"Error adding file to IPFS: {e}")
         print(f"Stderr: {e.stderr}")
@@ -61,7 +81,16 @@ def download_ipfs_file_subprocess(cid: str, destination_path: str):
                                 If the CID points to a directory, this should be the path
                                 where the directory will be created.
     """
+    if not is_valid_cid(cid):
+        print(f"Error: refusing to fetch malformed CID {cid!r}.")
+        return
+
+    if not isinstance(destination_path, str) or not destination_path:
+        print("Error: invalid destination path.")
+        return
+
     # Ensure the directory for the destination_path exists
+    destination_path = os.path.abspath(destination_path)
     output_dir = os.path.dirname(destination_path)
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -72,7 +101,7 @@ def download_ipfs_file_subprocess(cid: str, destination_path: str):
     # If the CID is a file, it will be saved as the specified `destination_path`.
     # If the CID is a directory, a directory with the given `destination_path` will be created,
     # and its contents will be placed inside.
-    command = ["ipfs", "get", cid, "-o", destination_path]
+    command = ["ipfs", "get", "-o", destination_path, "--", cid]
 
     print(f"Executing command: {' '.join(command)}")
 
@@ -85,7 +114,8 @@ def download_ipfs_file_subprocess(cid: str, destination_path: str):
             command,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=IPFS_TIMEOUT
         )
 
         print(f"Successfully downloaded CID {cid} to: {destination_path}")
@@ -97,6 +127,8 @@ def download_ipfs_file_subprocess(cid: str, destination_path: str):
     except FileNotFoundError:
         print("Error: 'ipfs' command not found.")
         print("Please ensure IPFS CLI is installed and in your system's PATH.")
+    except subprocess.TimeoutExpired:
+        print(f"Error: 'ipfs get' timed out for CID {cid}.")
     except subprocess.CalledProcessError as e:
         print(f"Error downloading file with CID {cid}:")
         print(f"Command failed with exit code {e.returncode}")

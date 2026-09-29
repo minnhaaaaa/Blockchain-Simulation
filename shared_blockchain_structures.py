@@ -1,7 +1,98 @@
-import json, uuid, base64
-from typing import List, Dict 
+import json, uuid, base64, hashlib, ipaddress, socket
+from typing import List, Dict
 from datetime import datetime
 from ecdsa import VerifyingKey, SigningKey, SECP256k1
+
+# ECDSA signatures are hashed with SHA-256. python-ecdsa defaults to SHA-1,
+# which is collision broken and unsuitable for signing attacker-composable
+# messages such as transactions and blocks.
+SIGNATURE_HASH = hashlib.sha256
+
+MAX_KNOWN_PEERS = 1024
+MAX_SEEN_MESSAGE_IDS = 50000
+
+
+def load_verifying_key(public_key_pem) -> VerifyingKey:
+    """
+        Load a PEM public key that verifies with SIGNATURE_HASH.
+        Accepts str or bytes, raises on anything malformed.
+    """
+    if isinstance(public_key_pem, str):
+        public_key_pem = public_key_pem.encode()
+    return VerifyingKey.from_pem(public_key_pem, hashfunc=SIGNATURE_HASH)
+
+
+def verify_signature(public_key_pem, signature, message) -> bool:
+    """
+        Verify `signature` over `message` under `public_key_pem`.
+
+        Returns False instead of raising for every kind of malformed input.
+        A remote peer controls all three arguments, so a narrow
+        `except BadSignatureError` would let a malformed key or signature
+        escape as an unhandled exception and tear down the connection task.
+    """
+    if not public_key_pem or signature is None or message is None:
+        return False
+    try:
+        if isinstance(message, str):
+            message = message.encode()
+        load_verifying_key(public_key_pem).verify(signature, message)
+        return True
+    except Exception:
+        return False
+
+
+def remember_message_id(seen_message_ids: set, message_id: str):
+    """
+        Record a message id, discarding old entries once the set grows too
+        large. Without a bound a peer can exhaust our memory just by
+        broadcasting messages with fresh ids.
+    """
+    if len(seen_message_ids) >= MAX_SEEN_MESSAGE_IDS:
+        for old in list(seen_message_ids)[: MAX_SEEN_MESSAGE_IDS // 2]:
+            seen_message_ids.discard(old)
+    seen_message_ids.add(message_id)
+
+
+_endpoint_cache: Dict[str, str] = {}
+
+
+def resolve_host(host) -> str:
+    """
+        Resolve a host to an IPv4 address.
+
+        Peer messages carry this value, so reject anything that isn't a
+        plausible host name before handing it to the resolver, and cache
+        results so a peer can't make us issue unbounded blocking DNS
+        lookups from inside the event loop.
+    """
+    if not isinstance(host, str) or not 0 < len(host) <= 253:
+        raise ValueError("Invalid host")
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    if any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-." for c in host):
+        raise ValueError("Invalid host")
+    cached = _endpoint_cache.get(host)
+    if cached:
+        return cached
+    if len(_endpoint_cache) > MAX_KNOWN_PEERS:
+        _endpoint_cache.clear()
+    resolved = socket.gethostbyname(host)
+    _endpoint_cache[host] = resolved
+    return resolved
+
+
+def validate_port(port) -> int:
+    """
+        Coerce a peer supplied port and reject anything out of range.
+    """
+    port = int(port)
+    if not 1 <= port <= 65535:
+        raise ValueError("Invalid port")
+    return port
+
 
 class Transaction:
     def __init__(self, payload, sender: str, receiver: str, id=None, ts=None):
@@ -37,17 +128,10 @@ class Transaction:
         return json.dumps(self.to_dict())
     
     def is_valid_signature(self):
-        try:
-            # Load public key from PEM string
-            public_key = VerifyingKey.from_pem(self.sender.encode())
-
-            message = str(self).encode()
-
-            public_key.verify(self.sign, message)
-            return True
-        except Exception as e:
-            print(f"Invalid transaction signature: {e}")
+        if not verify_signature(self.sender, self.sign, str(self)):
+            print("Invalid transaction signature")
             return False
+        return True
     
 def txs_to_json_digestable_form(transactions: List[Transaction]):
     l=[]
@@ -91,11 +175,8 @@ class CommonChain:
             self.chain = block_list.copy()
 
         else:
-            raise ValueError("Invalid initialization")    @property
-    def lastBlock(self):
-        return self.chain[-1]
+            raise ValueError("Invalid initialization")
 
-    
     @property
     def lastBlock(self):
         return self.chain[-1]
@@ -125,9 +206,9 @@ class CommonChain:
 class Wallet:
     def __init__(self, private_key_pem: str = None):
         if not private_key_pem:
-            self.private_key = SigningKey.generate(curve=SECP256k1)
+            self.private_key = SigningKey.generate(curve=SECP256k1, hashfunc=SIGNATURE_HASH)
         else:
-            self.private_key = SigningKey.from_pem(private_key_pem)
+            self.private_key = SigningKey.from_pem(private_key_pem, hashfunc=SIGNATURE_HASH)
             
         self.private_key_pem = self.private_key.to_pem().decode()
 
@@ -136,15 +217,26 @@ class Wallet:
         self.public_key_pem = self.public_key.to_pem().decode()
 
 def transaction_exists_in_block_list(blockList, transaction_tc:Transaction, idx):
-    for i in range(idx-1):
+    """
+        Return True when `transaction_tc` already appears in one of the
+        blocks before index `idx`.
+
+        This used to return False on a hit and None otherwise, so every
+        caller - and they all test it as a boolean - saw "no duplicate"
+        whatever happened, and a signed transaction could be replayed into
+        as many blocks as an attacker liked. The loop also stopped one block
+        short of the block being validated.
+    """
+    for i in range(min(idx, len(blockList))):
         currBlock=blockList[i]
         for transaction in currBlock.transactions:
-            if(transaction.id==transaction_tc.id): 
-                # We sign the id of the transaction, 
+            if(transaction.id==transaction_tc.id):
+                # We sign the id of the transaction,
                 # if it was truly a duplicate transaction
                 # meant to reuse a sign then id must be the same
                 # otherwise we'll get the invalid sign error
-                return False
+                return True
+    return False
             
 def valid_chain_length(i):
     valid_chain_len=i # because we use zero indexing
