@@ -231,6 +231,7 @@ Tasks:
 - Expose the node service methods in `docs/API_CONTRACT.md`: submit event, read chain, read peer/stake state, read events by job, and report state changes.
 - Ensure per-node storage is namespaced by room and node ID.
 - Implement protocol-level malicious scenarios and consensus integration tests.
+- Integrate `origin/security-fixes` only through the reviewed merge gate in `docs/DEV_1_PROTOCOL.md`; retain its valid hardening changes while correcting the remaining PoS/PoA consensus blockers and adding regression tests.
 - Review every operation that can create final ledger state.
 
 Primary ownership:
@@ -298,6 +299,7 @@ Primary ownership:
 6. Integration happens at hours 4, 8, 12, 16, and 20.
 7. A failing contract, consensus, API, or critical browser test blocks P1 work.
 8. Any new constant is classified in review as structural code or moved to validated configuration/runtime data.
+9. The incoming security branch is not merge-ready merely because it applies cleanly or compiles. Developer 1 must satisfy the branch-specific consensus, compatibility, and regression-test gate in `docs/DEV_1_PROTOCOL.md` before it enters `main`.
 
 ## 12. 24-hour schedule
 
