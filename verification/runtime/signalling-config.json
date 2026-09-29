@@ -1,0 +1,7 @@
+{
+  "bind_host": "127.0.0.1",
+  "bind_port": 5510,
+  "database_path": "C:/Users/rishav raj/Desktop/project/block chain/Blockchain-Simulation/verification/runtime/signalling.sqlite3",
+  "membership_ttl_ms": 60000,
+  "max_request_bytes": 1048576
+}
