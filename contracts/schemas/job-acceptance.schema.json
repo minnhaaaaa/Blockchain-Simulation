@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:job-acceptance:1",
+  "title": "Job acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "worker_public_key",
+    "accepted_at_ms"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "job_id": {"$ref": "./common.schema.json#/$defs/jobId"},
+    "worker_public_key": {"$ref": "./common.schema.json#/$defs/publicKeyPem"},
+    "accepted_at_ms": {"$ref": "./common.schema.json#/$defs/timestampMs"}
+  }
+}

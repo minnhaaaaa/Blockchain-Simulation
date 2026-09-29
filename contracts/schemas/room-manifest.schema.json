@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:room-manifest:1",
+  "title": "Signed room manifest",
+  "$defs": {
+    "consensusParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["epoch_ms", "max_clock_skew_ms", "finality_depth", "max_connections", "block_reward", "minimum_stake"],
+      "properties": {
+        "epoch_ms": {"type": "integer", "minimum": 100},
+        "max_clock_skew_ms": {"type": "integer", "minimum": 0},
+        "finality_depth": {"type": "integer", "minimum": 1},
+        "max_connections": {"type": "integer", "minimum": 1},
+        "block_reward": {"type": "integer", "minimum": 0},
+        "minimum_stake": {"type": "integer", "minimum": 1}
+      }
+    },
+    "genesisAllocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_key", "amount"],
+      "properties": {
+        "public_key": {"$ref": "./common.schema.json#/$defs/publicKeyPem"},
+        "amount": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "room_id",
+    "protocol_version",
+    "consensus",
+    "genesis",
+    "creator_public_key",
+    "created_at_ms",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "room_id": {
+      "$ref": "./common.schema.json#/$defs/roomId"
+    },
+    "protocol_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "consensus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "parameters"],
+      "properties": {
+        "type": {
+          "const": "pos"
+        },
+        "parameters": {"$ref": "#/$defs/consensusParameters"}
+      }
+    },
+    "genesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["block_id", "created_at_ms", "allocations"],
+      "properties": {
+        "block_id": {
+          "$ref": "./common.schema.json#/$defs/uuid"
+        },
+        "created_at_ms": {
+          "$ref": "./common.schema.json#/$defs/timestampMs"
+        },
+        "allocations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/genesisAllocation"}
+        }
+      }
+    },
+    "creator_public_key": {
+      "$ref": "./common.schema.json#/$defs/publicKeyPem"
+    },
+    "created_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    },
+    "signature": {
+      "$ref": "./common.schema.json#/$defs/base64Signature"
+    }
+  }
+}

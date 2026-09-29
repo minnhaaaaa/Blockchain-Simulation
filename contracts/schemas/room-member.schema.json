@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:room-member:1",
+  "title": "Live room member",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "room_id",
+    "node_id",
+    "name",
+    "advertised_host",
+    "advertised_port",
+    "public_key_fingerprint",
+    "joined_at_ms",
+    "last_heartbeat_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "room_id": {
+      "$ref": "./common.schema.json#/$defs/roomId"
+    },
+    "node_id": {
+      "$ref": "./common.schema.json#/$defs/nodeId"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "advertised_host": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "advertised_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "public_key_fingerprint": {
+      "$ref": "./common.schema.json#/$defs/sha256"
+    },
+    "joined_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    },
+    "last_heartbeat_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    }
+  }
+}

@@ -119,6 +119,7 @@ P0 event types are:
 - `action.proposed`
 - `action.allowed`
 - `action.denied`
+- `action.approval_required`
 - `action.approved`
 - `action.rejected`
 - `action.completed`
@@ -179,7 +180,7 @@ The signalling service is a discovery registry, not a consensus authority. Its r
 
 - Create a room by storing a creator-signed room manifest containing protocol version, consensus type, consensus parameters, genesis descriptor, creator public key, and creation timestamp.
 - Read and verify the exact room manifest before a node joins.
-- Join a room with node ID, advertised host, advertised port, name, public key fingerprint, and timestamp.
+- Join a room with node ID, advertised host, advertised port, name, and public key fingerprint; the server owns membership timestamps.
 - Heartbeat an existing membership.
 - List non-expired peers from the same room.
 - Leave a room.
@@ -204,11 +205,21 @@ The dashboard must contain live views for:
 
 The page starts empty and loads all content through APIs. Empty states must say that no data exists; they must not fabricate examples.
 
-## 10. Work division for three people
+The implementation begins from the frozen shared package: `contracts/openapi.json`, `contracts/schemas/`, `docs/SCHEMAS.md`, `docs/API_CONTRACT.md`, and `docs/FRONTEND_SPEC.md`. Browser-safe request schemas deliberately omit server-owned IDs, actor keys, signatures, and timestamps; the application/node derives and signs those values at runtime.
 
-### Person 1: consensus and blockchain lead
+## 10. Work division for three experienced developers
 
-Owns existing consensus code and the ledger integration boundary.
+All three developers implement, test, review, and integrate production code. The workstreams are deliberately comparable in size. GPT/Claude may accelerate implementation, but generated code is accepted only after the owner understands it, runs the relevant tests, and checks it against the frozen contracts in `contracts/`.
+
+Detailed briefs live in:
+
+- `docs/DEV_1_PROTOCOL.md`
+- `docs/DEV_2_RUNTIME.md`
+- `docs/DEV_3_FRONTEND.md`
+
+### Developer 1: protocol, consensus, and ledger APIs
+
+Owns consensus correctness, signed ledger data, and the read/write boundary exposed to the rest of the application.
 
 Tasks:
 
@@ -216,94 +227,90 @@ Tasks:
 - Fix `consensus/pos/blockchain_structures.py` and `consensus/pos/p2p.py` without copying fixes independently into multiple divergent implementations.
 - Extract shared normal/malicious behavior where required so malicious mode changes attacks, not consensus validation.
 - Add canonical serialization and deterministic signing/proof behavior.
-- Define and validate the generic signed agent-event transaction envelope.
-- Expose a narrow node service interface used by the application layer:
-  - submit an event;
-  - read chain summary;
-  - read peer/stake summary;
-  - read events by job ID;
-  - subscribe or poll for state changes.
+- Implement validation of the frozen signed agent-event envelope.
+- Expose the node service methods in `docs/API_CONTRACT.md`: submit event, read chain, read peer/stake state, read events by job, and report state changes.
 - Ensure per-node storage is namespaced by room and node ID.
-- Review all code that can cause a ledger state transition.
+- Implement protocol-level malicious scenarios and consensus integration tests.
+- Review every operation that can create final ledger state.
 
-Files owned primarily by Person 1:
+Primary ownership:
 
 - `shared_blockchain_structures.py`
 - `consensus/pos/blockchain_structures.py`
 - `consensus/pos/p2p.py`
 - `consensus/pos/mal_node.py`
-- Consensus and serialization tests
+- Node-service adapter and protocol tests
 
-Person 1 must not build the dashboard or signalling UI unless Person 2 is blocked.
+### Developer 2: signalling, agent runtime, policy, and application API
 
-### Person 2: application, signalling, and web lead
-
-Owns new AgentGuard modules and the user-facing flow.
+Owns room discovery, job execution, artifact handling, permission enforcement, projections, and the HTTP API consumed by React.
 
 Tasks:
 
-- Implement configuration loading and strict startup validation.
-- Implement the room signalling service and node discovery client.
-- Define application schemas for jobs, policies, actions, decisions, artifacts, and receipts in agreement with Person 1's event envelope.
-- Implement artifact ID resolution and job-scoped storage.
-- Implement the deny-by-default permission gateway.
-- Implement bounded CSV, SQLite, report-writing, and hashing tools.
-- Implement the configurable provider interface; add a real provider only after the deterministic path works.
-- Build Flask APIs and the HTML/CSS/JavaScript dashboard.
-- Implement normal worker behavior plus API-triggered malicious scenarios for replay and unauthorized-action tests.
-- Write signalling, policy, API, and end-to-end tests.
-- Integrate against Person 1's narrow node service interface rather than importing consensus internals throughout the app.
+- Implement strict configuration loading and startup validation.
+- Implement immutable room manifests, room membership, heartbeat expiry, and node discovery.
+- Validate jobs, policies, actions, decisions, receipts, and events against the frozen schemas.
+- Implement artifact IDs, content-addressed storage, and job-scoped SQLite projections.
+- Implement the deny-by-default permission gateway and bounded tool registry.
+- Implement worker and configurable model-provider interfaces.
+- Implement the Flask API described by `contracts/openapi.json`.
+- Implement normal worker behavior and runtime malicious scenarios for unauthorized action and replay attempts.
+- Write signalling, policy, storage, tool, API, and runtime integration tests.
+- Integrate only through Developer 1's node-service boundary.
 
-Files owned primarily by Person 2:
+Primary ownership:
 
 - New `agentguard/` package
 - New `signalling/` package
-- New `web/` templates and static assets
-- Application, signalling, API, and end-to-end tests
-- Configuration schema and example templates
+- New `api/` package
+- Backend configuration and application tests
 
-### Person 3: Verification coordinator
+### Developer 3: React frontend, client contracts, and system integration
 
-
+Owns the complete user experience, schema-derived TypeScript client, browser tests, and repeatable multi-process demonstration harness.
 
 Tasks:
 
-- Maintain a checklist of every command required to install and start the signalling server, nodes, and dashboard.
-- Run the documented commands exactly as written on a clean terminal and record every failure verbatim for Persons 1 and 2.
-- Create room IDs, node names, job text, policies, and uploaded demo inputs through the real UI during testing; do not edit source files to make the demo work.
-- Execute the manual acceptance matrix supplied by the developers and mark pass/fail with timestamps.
-- Capture screenshots of room creation, discovered peers, job submission, approval, finalized receipt, and malicious-action rejection.
-- Verify that refreshing the page does not introduce fake data and that a new room begins empty.
-- Search the UI and documentation for claims such as "secure," "verified," "private," or "distributed AI" and flag any claim not demonstrated by the build.
-- Prepare the final five-minute presentation and demonstration sequence from the verified run.
+- Scaffold React 19.3, TypeScript, and Vite under `frontend/`.
+- Generate or maintain TypeScript types from JSON Schemas; never redeclare API payloads informally inside components.
+- Implement API transport, TanStack Query hooks, polling, mutation invalidation, and error normalization.
+- Build every route, layout, component, state, and piece of content in `docs/FRONTEND_SPEC.md`.
+- Implement room creation/join, overview, jobs, job composer, job timeline, approvals, network, ledger, security, and runtime settings.
+- Implement responsive layout, keyboard navigation, focus states, reduced motion, loading, empty, error, offline, and stale states.
+- Add Vitest/React Testing Library component tests and Playwright user-journey tests.
+- Build scripts that launch or verify the signalling service, three independent nodes, API, and React application without fixed identities or ports.
+- Own the final integration checklist, clean-room run, screenshots, and five-minute demo.
 
-Person 3 must not modify consensus code, security rules, Python modules, JavaScript logic, dependency files, or configuration loaders. If a command fails, Person 3 reports the exact command and output rather than improvising a code change.
+Primary ownership:
+
+- New `frontend/` React application
+- Generated frontend contract types and API client
+- Frontend tests and Playwright tests
+- Cross-process development/demo orchestration
 
 ## 11. Collaboration contract
 
-To keep two developers productive in parallel:
-
-1. During the first hour, Persons 1 and 2 freeze the event envelope, node service methods, configuration fields, and API response shapes.
-2. Person 1 returns plain dictionaries from the node service; Person 2 does not depend on `Peer`, `Block`, `Stake`, or wallet implementation details.
-3. Person 2 can develop against an in-memory test double located only under tests. Production startup must require a real node service.
-4. Each developer works primarily in the owned files listed above.
-5. Integration happens at hours 6, 12, and 18 rather than waiting until the end.
-6. A failing P0 test blocks P1 work.
-7. Any value added as a constant must be classified during review as structural code or moved into validated configuration/runtime data.
+1. The contracts under `contracts/` and decisions under `docs/` are frozen before implementation. A change requires review from every affected workstream.
+2. Developer 1 returns schema-valid dictionaries from the node service; Developer 2 never imports `Peer`, `Block`, `Stake`, or wallet internals outside its adapter.
+3. Developer 2 returns responses matching `contracts/openapi.json`; Developer 3 never infers backend state or imports server implementation details.
+4. Developers 2 and 3 may use schema-derived test doubles. Production startup must use real services, and mock data must never ship in the production bundle.
+5. Each developer works primarily in the files they own and requests review before editing another owner's core files.
+6. Integration happens at hours 4, 8, 12, 16, and 20.
+7. A failing contract, consensus, API, or critical browser test blocks P1 work.
+8. Any new constant is classified in review as structural code or moved to validated configuration/runtime data.
 
 ## 12. 24-hour schedule
 
-| Time | Person 1 | Person 2 | Person 3 |
+| Time | Developer 1 | Developer 2 | Developer 3 |
 |---|---|---|---|
-| Hours 0-1 | Freeze interfaces and write PoS test list | Freeze interfaces and sketch API/UI flow | Prepare run log and acceptance checklist |
-| Hours 1-5 | Canonical serialization, stake and threshold fixes | Config loader and signalling server | Read current README and identify unclear commands |
-| Hours 5-8 | Proof, replay, fork, and double-sign fixes | Signalling client, domain schemas, artifact storage | Run signalling instructions and report results |
-| Hours 8-12 | Agent event validation and node service | Permission engine and bounded tools | Prepare user-created demo input and policy through UI when available |
-| Hours 12-15 | Persistence isolation and consensus integration tests | Flask APIs and main dashboard | Run first manual happy path and record failures |
-| Hours 15-18 | Malicious consensus/event tests | Approval flow, violations, malicious action triggers | Test empty states, form validation, and page refresh behavior |
-| Hours 18-21 | Full multi-node integration and fixes | Full multi-node integration and fixes | Execute full acceptance matrix and capture evidence |
-| Hours 21-23 | Regression tests and code review for hardcoded data | Regression tests and UI cleanup | Draft demo script and presentation |
-| Hours 23-24 | Release candidate only; no new features | Release candidate only; no new features | Final clean run, screenshots, and documentation verification |
+| Hours 0-1 | Review contracts; prepare protocol test matrix | Review contracts; prepare runtime/API test matrix | Review contracts/frontend specification; scaffold app |
+| Hours 1-5 | Canonical serialization, stake, threshold, proof fixes | Configuration, immutable room registry, signalling client | Design tokens, application shell, generated client types |
+| Hours 5-8 | Fork, replay, duplicate, and double-sign fixes | Artifact store, projections, job/policy validation | Room entry, overview, network, and API state infrastructure |
+| Hours 8-12 | Agent-event validation and node-service APIs | Permission gateway, tools, worker/provider interfaces | Jobs list, composer, job detail, execution rail, approvals |
+| Hours 12-16 | Persistence isolation, malicious scenarios, protocol integration tests | Flask OpenAPI implementation, violations, runtime integration tests | Ledger, security, settings, responsive/accessibility work |
+| Hours 16-20 | Multi-node integration, fixes, performance checks | Multi-node integration, fixes, API contract checks | Browser E2E suite, launch harness, integration fixes |
+| Hours 20-22 | Regression suite; cross-review Developer 2 | Regression suite; cross-review Developer 3 | Regression suite; cross-review Developer 1 |
+| Hours 22-24 | Release candidate and clean-room run | Release candidate and clean-room run | Release candidate, demo evidence, clean-room run |
 
 ## 13. Required tests
 

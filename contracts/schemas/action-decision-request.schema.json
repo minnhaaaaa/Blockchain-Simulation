@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:action-decision-request:1",
+  "title": "Human action decision request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision"],
+  "properties": {
+    "decision": {"enum": ["approved", "rejected"]},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+  }
+}

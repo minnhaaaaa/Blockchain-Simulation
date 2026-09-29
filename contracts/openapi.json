@@ -1,0 +1,892 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AgentGuard Lite API",
+    "version": "1.0.0",
+    "description": "Frozen HTTP contract for signalling, AgentGuard execution, ledger inspection, and the React client. No server URL is embedded; the frontend receives it from runtime configuration."
+  },
+  "tags": [
+    {"name": "Rooms"},
+    {"name": "Network"},
+    {"name": "Artifacts"},
+    {"name": "Jobs"},
+    {"name": "Actions"},
+    {"name": "Security"}
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Service is alive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["status"],
+                  "properties": {
+                    "status": {"const": "ok"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rooms": {
+      "post": {
+        "tags": ["Rooms"],
+        "operationId": "createRoom",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "./schemas/room-manifest.schema.json"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Immutable room manifest stored",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "./schemas/room-manifest.schema.json"}
+              }
+            }
+          },
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "422": {"$ref": "#/components/responses/ValidationError"}
+        }
+      }
+    },
+    "/api/rooms/{room_id}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/RoomId"}
+      ],
+      "get": {
+        "tags": ["Rooms"],
+        "operationId": "getRoom",
+        "responses": {
+          "200": {
+            "description": "Exact stored room manifest",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "./schemas/room-manifest.schema.json"}
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/rooms/{room_id}/members": {
+      "parameters": [
+        {"$ref": "#/components/parameters/RoomId"}
+      ],
+      "post": {
+        "tags": ["Rooms"],
+        "operationId": "joinRoom",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "./schemas/room-join.schema.json"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Membership accepted or refreshed",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "./schemas/room-member.schema.json"}
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "422": {"$ref": "#/components/responses/ValidationError"}
+        }
+      },
+      "get": {
+        "tags": ["Rooms"],
+        "operationId": "listRoomMembers",
+        "responses": {
+          "200": {
+            "description": "Non-expired room members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["items", "server_time_ms"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {"$ref": "./schemas/room-member.schema.json"}
+                    },
+                    "server_time_ms": {
+                      "$ref": "./schemas/common.schema.json#/$defs/timestampMs"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/rooms/{room_id}/members/{node_id}/heartbeat": {
+      "parameters": [
+        {"$ref": "#/components/parameters/RoomId"},
+        {"$ref": "#/components/parameters/NodeId"}
+      ],
+      "post": {
+        "tags": ["Rooms"],
+        "operationId": "heartbeatRoomMember",
+        "responses": {
+          "204": {"description": "Heartbeat accepted"},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/rooms/{room_id}/members/{node_id}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/RoomId"},
+        {"$ref": "#/components/parameters/NodeId"}
+      ],
+      "delete": {
+        "tags": ["Rooms"],
+        "operationId": "leaveRoom",
+        "responses": {
+          "204": {"description": "Membership removed"},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "tags": ["Network"],
+        "operationId": "getStatus",
+        "responses": {
+          "200": {
+            "description": "Application and connected node status",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Status"}
+              }
+            }
+          },
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/api/room-session": {
+      "post": {
+        "tags": ["Rooms"],
+        "operationId": "configureRoomSession",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "./schemas/room-session-request.schema.json"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Local node created or joined the room and returns its verified manifest",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "./schemas/room-manifest.schema.json"}
+              }
+            }
+          },
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "422": {"$ref": "#/components/responses/ValidationError"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/api/providers": {
+      "get": {
+        "tags": ["Network"],
+        "operationId": "listProviders",
+        "responses": {
+          "200": {
+            "description": "Runtime-configured agent providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/Provider"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "tags": ["Network"],
+        "operationId": "listTools",
+        "responses": {
+          "200": {
+            "description": "Runtime-registered tool capabilities available for policy construction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["items"],
+                  "properties": {
+                    "items": {"type": "array", "items": {"$ref": "#/components/schemas/Tool"}}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/peers": {
+      "get": {
+        "tags": ["Network"],
+        "operationId": "listPeers",
+        "responses": {
+          "200": {
+            "description": "Discovered and directly connected peers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/Peer"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chain": {
+      "get": {
+        "tags": ["Network"],
+        "operationId": "getChain",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 200}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chain summary and recent blocks",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Chain"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chain/{block_id}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/BlockId"}
+      ],
+      "get": {
+        "tags": ["Network"],
+        "operationId": "getBlock",
+        "responses": {
+          "200": {
+            "description": "Block summary with its ordered AgentGuard events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["block", "events"],
+                  "properties": {
+                    "block": {"$ref": "#/components/schemas/Block"},
+                    "events": {
+                      "type": "array",
+                      "items": {"$ref": "./schemas/agent-event.schema.json"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/stakes": {
+      "get": {
+        "tags": ["Network"],
+        "operationId": "listStakes",
+        "responses": {
+          "200": {
+            "description": "Authenticated current stake snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["epoch_seed", "total_stake", "latest_proposer_fingerprint", "items"],
+                  "properties": {
+                    "epoch_seed": {
+                      "$ref": "./schemas/common.schema.json#/$defs/sha256"
+                    },
+                    "total_stake": {"type": "integer", "minimum": 1},
+                    "latest_proposer_fingerprint": {
+                      "oneOf": [
+                        {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+                        {"type": "null"}
+                      ]
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/Stake"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/artifacts": {
+      "post": {
+        "tags": ["Artifacts"],
+        "operationId": "uploadArtifact",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["file"],
+                "properties": {
+                  "file": {"type": "string", "format": "binary"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Artifact stored and hashed",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "./schemas/common.schema.json#/$defs/artifactRef"}
+              }
+            }
+          },
+          "413": {"$ref": "#/components/responses/PayloadTooLarge"},
+          "422": {"$ref": "#/components/responses/ValidationError"}
+        }
+      }
+    },
+    "/api/jobs": {
+      "post": {
+        "tags": ["Jobs"],
+        "operationId": "createJob",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "./schemas/job-create-request.schema.json"}
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job event accepted for ledger submission",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Submission"}
+              }
+            }
+          },
+          "422": {"$ref": "#/components/responses/ValidationError"}
+        }
+      },
+      "get": {
+        "tags": ["Jobs"],
+        "operationId": "listJobs",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/JobStatus"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current job projections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/JobProjection"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/JobId"}
+      ],
+      "get": {
+        "tags": ["Jobs"],
+        "operationId": "getJob",
+        "responses": {
+          "200": {
+            "description": "Job projection and ordered ledger timeline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["job", "events"],
+                  "properties": {
+                    "job": {"$ref": "#/components/schemas/JobProjection"},
+                    "events": {
+                      "type": "array",
+                      "items": {"$ref": "./schemas/agent-event.schema.json"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/jobs/{job_id}/accept": {
+      "parameters": [
+        {"$ref": "#/components/parameters/JobId"}
+      ],
+      "post": {
+        "tags": ["Jobs"],
+        "operationId": "acceptJob",
+        "responses": {
+          "202": {
+            "description": "Acceptance event submitted",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Submission"}
+              }
+            }
+          },
+          "409": {"$ref": "#/components/responses/Conflict"}
+        }
+      }
+    },
+    "/api/jobs/{job_id}/run": {
+      "parameters": [
+        {"$ref": "#/components/parameters/JobId"}
+      ],
+      "post": {
+        "tags": ["Jobs"],
+        "operationId": "runJob",
+        "responses": {
+          "202": {
+            "description": "Configured worker run started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["run_id", "job_id", "state"],
+                  "properties": {
+                    "run_id": {"$ref": "./schemas/common.schema.json#/$defs/uuid"},
+                    "job_id": {"$ref": "./schemas/common.schema.json#/$defs/jobId"},
+                    "state": {"const": "started"}
+                  }
+                }
+              }
+            }
+          },
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/api/jobs/{job_id}/actions": {
+      "parameters": [
+        {"$ref": "#/components/parameters/JobId"}
+      ],
+      "post": {
+        "tags": ["Actions"],
+        "operationId": "proposeAction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "./schemas/action.schema.json"}
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Action proposal submitted",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Submission"}
+              }
+            }
+          },
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "422": {"$ref": "#/components/responses/ValidationError"}
+        }
+      }
+    },
+    "/api/jobs/{job_id}/actions/{action_id}/decision": {
+      "parameters": [
+        {"$ref": "#/components/parameters/JobId"},
+        {"$ref": "#/components/parameters/ActionId"}
+      ],
+      "post": {
+        "tags": ["Actions"],
+        "operationId": "decideAction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "./schemas/action-decision-request.schema.json"}
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Decision event submitted",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Submission"}
+              }
+            }
+          },
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "422": {"$ref": "#/components/responses/ValidationError"}
+        }
+      }
+    },
+    "/api/violations": {
+      "get": {
+        "tags": ["Security"],
+        "operationId": "listViolations",
+        "responses": {
+          "200": {
+            "description": "Finalized and pending security violations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/Violation"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "RoomId": {
+        "name": "room_id",
+        "in": "path",
+        "required": true,
+        "schema": {"$ref": "./schemas/common.schema.json#/$defs/roomId"}
+      },
+      "NodeId": {
+        "name": "node_id",
+        "in": "path",
+        "required": true,
+        "schema": {"$ref": "./schemas/common.schema.json#/$defs/nodeId"}
+      },
+      "JobId": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "schema": {"$ref": "./schemas/common.schema.json#/$defs/jobId"}
+      },
+      "ActionId": {
+        "name": "action_id",
+        "in": "path",
+        "required": true,
+        "schema": {"$ref": "./schemas/common.schema.json#/$defs/actionId"}
+      },
+      "BlockId": {
+        "name": "block_id",
+        "in": "path",
+        "required": true,
+        "schema": {"$ref": "./schemas/common.schema.json#/$defs/uuid"}
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Requested resource does not exist",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "./schemas/common.schema.json#/$defs/apiError"}
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Request conflicts with current state",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "./schemas/common.schema.json#/$defs/apiError"}
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Schema or domain validation failed",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "./schemas/common.schema.json#/$defs/apiError"}
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Uploaded request exceeds configured limit",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "./schemas/common.schema.json#/$defs/apiError"}
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "A required runtime service is unavailable",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "./schemas/common.schema.json#/$defs/apiError"}
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "room_id",
+          "node_id",
+          "node_name",
+          "node_public_key_fingerprint",
+          "node_state",
+          "api_state",
+          "provider_state",
+          "chain_height",
+          "finalized_height",
+          "updated_at_ms"
+        ],
+        "properties": {
+          "room_id": {"$ref": "./schemas/common.schema.json#/$defs/roomId"},
+          "node_id": {"$ref": "./schemas/common.schema.json#/$defs/nodeId"},
+          "node_name": {"type": "string"},
+          "node_public_key_fingerprint": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "node_state": {"enum": ["starting", "online", "degraded", "offline"]},
+          "api_state": {"enum": ["online", "degraded"]},
+          "provider_state": {"enum": ["configured", "unconfigured", "unavailable"]},
+          "chain_height": {"type": "integer", "minimum": 0},
+          "finalized_height": {"type": "integer", "minimum": 0},
+          "updated_at_ms": {"$ref": "./schemas/common.schema.json#/$defs/timestampMs"}
+        }
+      },
+      "Provider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider_id", "label", "kind", "state"],
+        "properties": {
+          "provider_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "label": {"type": "string", "minLength": 1, "maxLength": 128},
+          "kind": {"enum": ["manual", "ollama", "openai_compatible"]},
+          "state": {"enum": ["ready", "unavailable", "misconfigured"]}
+        }
+      },
+      "Tool": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool_id", "label", "description", "version", "argument_schema", "output_kinds"],
+        "properties": {
+          "tool_id": {"$ref": "./schemas/common.schema.json#/$defs/toolId"},
+          "label": {"type": "string", "minLength": 1, "maxLength": 128},
+          "description": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "version": {"type": "string", "minLength": 1, "maxLength": 64},
+          "argument_schema": {"type": "object"},
+          "output_kinds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"enum": ["none", "text", "json", "table", "artifact"]}
+          }
+        }
+      },
+      "Peer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["node_id", "name", "advertised_host", "advertised_port", "public_key_fingerprint", "discovery_state", "connection_state", "last_seen_ms"],
+        "properties": {
+          "node_id": {"$ref": "./schemas/common.schema.json#/$defs/nodeId"},
+          "name": {"type": "string"},
+          "advertised_host": {"type": "string", "minLength": 1, "maxLength": 255},
+          "advertised_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+          "public_key_fingerprint": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "discovery_state": {"enum": ["discovered", "expired"]},
+          "connection_state": {"enum": ["disconnected", "connecting", "connected", "failed"]},
+          "last_seen_ms": {"$ref": "./schemas/common.schema.json#/$defs/timestampMs"}
+        }
+      },
+      "Chain": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["height", "finalized_height", "head_hash", "blocks"],
+        "properties": {
+          "height": {"type": "integer", "minimum": 0},
+          "finalized_height": {"type": "integer", "minimum": 0},
+          "head_hash": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "blocks": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Block"}
+          }
+        }
+      },
+      "Block": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["height", "block_id", "hash", "previous_hash", "creator_fingerprint", "created_at_ms", "transaction_count", "finality"],
+        "properties": {
+          "height": {"type": "integer", "minimum": 0},
+          "block_id": {"$ref": "./schemas/common.schema.json#/$defs/uuid"},
+          "hash": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "previous_hash": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "creator_fingerprint": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "created_at_ms": {"$ref": "./schemas/common.schema.json#/$defs/timestampMs"},
+          "transaction_count": {"type": "integer", "minimum": 0},
+          "finality": {"enum": ["proposed", "confirmed", "finalized", "rejected"]}
+        }
+      },
+      "Stake": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["staker_fingerprint", "amount"],
+        "properties": {
+          "staker_fingerprint": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "amount": {"type": "integer", "minimum": 1}
+        }
+      },
+      "Submission": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["submission_id", "event_id", "ledger_state"],
+        "properties": {
+          "submission_id": {"$ref": "./schemas/common.schema.json#/$defs/uuid"},
+          "event_id": {"$ref": "./schemas/common.schema.json#/$defs/uuid"},
+          "ledger_state": {"enum": ["submitted", "included", "finalized", "rejected"]},
+          "event_hash": {
+            "oneOf": [
+              {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "JobStatus": {
+        "enum": ["draft", "submitted", "accepted", "running", "waiting_approval", "completed", "failed", "expired"]
+      },
+      "JobProjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["job_id", "room_id", "title", "owner_fingerprint", "provider_id", "status", "latest_sequence", "action_count", "completed_action_count", "pending_approval_count", "created_at_ms", "updated_at_ms", "finality"],
+        "properties": {
+          "job_id": {"$ref": "./schemas/common.schema.json#/$defs/jobId"},
+          "room_id": {"$ref": "./schemas/common.schema.json#/$defs/roomId"},
+          "title": {"type": "string"},
+          "owner_fingerprint": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "worker_fingerprint": {
+            "oneOf": [
+              {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+              {"type": "null"}
+            ]
+          },
+          "provider_id": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/JobStatus"},
+          "latest_sequence": {"type": "integer", "minimum": 0},
+          "action_count": {"type": "integer", "minimum": 0},
+          "completed_action_count": {"type": "integer", "minimum": 0},
+          "pending_approval_count": {"type": "integer", "minimum": 0},
+          "created_at_ms": {"$ref": "./schemas/common.schema.json#/$defs/timestampMs"},
+          "updated_at_ms": {"$ref": "./schemas/common.schema.json#/$defs/timestampMs"},
+          "finality": {"enum": ["pending", "included", "finalized", "rejected"]}
+        }
+      },
+      "Violation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["violation_id", "job_id", "category", "code", "message", "evidence_hash", "actor_fingerprint", "detected_at_ms", "finality"],
+        "properties": {
+          "violation_id": {"$ref": "./schemas/common.schema.json#/$defs/uuid"},
+          "job_id": {"$ref": "./schemas/common.schema.json#/$defs/jobId"},
+          "action_id": {
+            "oneOf": [
+              {"$ref": "./schemas/common.schema.json#/$defs/actionId"},
+              {"type": "null"}
+            ]
+          },
+          "category": {"enum": ["policy", "signature", "replay", "sequence", "artifact", "consensus"]},
+          "code": {"type": "string", "minLength": 1, "maxLength": 80},
+          "message": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "evidence_hash": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "actor_fingerprint": {"$ref": "./schemas/common.schema.json#/$defs/sha256"},
+          "detected_at_ms": {"$ref": "./schemas/common.schema.json#/$defs/timestampMs"},
+          "finality": {"enum": ["pending", "included", "finalized", "rejected"]}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:policy:1",
+  "title": "Job permission policy",
+  "$defs": {
+    "ruleInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool_id",
+        "effect",
+        "read_artifact_ids",
+        "write_scopes",
+        "argument_constraints"
+      ],
+      "properties": {
+        "rule_id": {"$ref": "./common.schema.json#/$defs/uuid"},
+        "tool_id": {"$ref": "./common.schema.json#/$defs/toolId"},
+        "effect": {"enum": ["allow", "deny", "approval_required"]},
+        "read_artifact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "./common.schema.json#/$defs/artifactId"}
+        },
+        "write_scopes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "argument_constraints": {"type": "object"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_actions", "max_runtime_ms_per_action", "max_output_bytes_per_action"],
+      "properties": {
+        "max_actions": {"type": "integer", "minimum": 1},
+        "max_runtime_ms_per_action": {"type": "integer", "minimum": 1},
+        "max_output_bytes_per_action": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "job_id",
+    "owner_public_key",
+    "rules",
+    "limits",
+    "created_at_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "policy_id": {
+      "$ref": "./common.schema.json#/$defs/uuid"
+    },
+    "job_id": {
+      "$ref": "./common.schema.json#/$defs/jobId"
+    },
+    "owner_public_key": {
+      "$ref": "./common.schema.json#/$defs/publicKeyPem"
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/ruleInput"},
+          {
+            "type": "object",
+            "required": ["rule_id"],
+            "properties": {
+          "rule_id": {
+            "$ref": "./common.schema.json#/$defs/uuid"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "limits": {"$ref": "#/$defs/limits"},
+    "created_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    },
+    "expires_at_ms": {
+      "oneOf": [
+        {
+          "$ref": "./common.schema.json#/$defs/timestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

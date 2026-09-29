@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:action:1",
+  "title": "Agent action proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "action_id",
+    "job_id",
+    "action_sequence",
+    "tool_id",
+    "arguments",
+    "input_artifact_ids",
+    "expected_output_kind",
+    "proposer_public_key",
+    "proposed_at_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "action_id": {
+      "$ref": "./common.schema.json#/$defs/actionId"
+    },
+    "job_id": {
+      "$ref": "./common.schema.json#/$defs/jobId"
+    },
+    "action_sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tool_id": {
+      "$ref": "./common.schema.json#/$defs/toolId"
+    },
+    "arguments": {
+      "type": "object"
+    },
+    "input_artifact_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./common.schema.json#/$defs/artifactId"
+      }
+    },
+    "expected_output_kind": {
+      "enum": ["none", "text", "json", "table", "artifact"]
+    },
+    "proposer_public_key": {
+      "$ref": "./common.schema.json#/$defs/publicKeyPem"
+    },
+    "proposed_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    }
+  }
+}

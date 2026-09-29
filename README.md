@@ -1,6 +1,21 @@
 # Blockchain App
 A web and terminal blockchain implementation in Python from scratch
 
+## AgentGuard Lite implementation package
+
+The next milestone turns the simulator into a room-discovered, policy-controlled agent execution network with a React interface. These documents are the frozen starting point for the three parallel implementation workstreams:
+
+- [Implementation plan](PLAN.md)
+- [Technical stack](TECH_STACK.md)
+- [Data schemas and state machines](docs/SCHEMAS.md)
+- [HTTP and node-service contract](docs/API_CONTRACT.md)
+- [React product/interface specification](docs/FRONTEND_SPEC.md)
+- [Developer 1: protocol and PoS](docs/DEV_1_PROTOCOL.md)
+- [Developer 2: signalling and runtime](docs/DEV_2_RUNTIME.md)
+- [Developer 3: React and integration](docs/DEV_3_FRONTEND.md)
+
+Machine-readable contracts live in [`contracts/`](contracts/). This planning package specifies the target implementation; features remain subject to the definition of done in `PLAN.md` until their code and tests are merged.
+
 ## Features
 - Peer-to-Peer network with decentralized communication
 - Public/private key-based account system

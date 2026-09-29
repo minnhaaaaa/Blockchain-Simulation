@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:receipt:1",
+  "title": "Signed action execution receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "job_id",
+    "action_id",
+    "worker_public_key",
+    "tool_id",
+    "tool_version",
+    "request_hash",
+    "output_hash",
+    "output_artifacts",
+    "status",
+    "started_at_ms",
+    "completed_at_ms",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "receipt_id": {
+      "$ref": "./common.schema.json#/$defs/uuid"
+    },
+    "job_id": {
+      "$ref": "./common.schema.json#/$defs/jobId"
+    },
+    "action_id": {
+      "$ref": "./common.schema.json#/$defs/actionId"
+    },
+    "worker_public_key": {
+      "$ref": "./common.schema.json#/$defs/publicKeyPem"
+    },
+    "tool_id": {
+      "$ref": "./common.schema.json#/$defs/toolId"
+    },
+    "tool_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "request_hash": {
+      "$ref": "./common.schema.json#/$defs/sha256"
+    },
+    "output_hash": {
+      "$ref": "./common.schema.json#/$defs/sha256"
+    },
+    "output_artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "./common.schema.json#/$defs/artifactRef"
+      }
+    },
+    "status": {
+      "enum": ["success", "failure"]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "started_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    },
+    "completed_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    },
+    "signature": {
+      "$ref": "./common.schema.json#/$defs/base64Signature"
+    }
+  }
+}

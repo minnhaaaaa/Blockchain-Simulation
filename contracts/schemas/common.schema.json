@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:common:1",
+  "title": "AgentGuard common definitions",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "roomId": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+    },
+    "nodeId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "jobId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "actionId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "artifactId": {
+      "$ref": "#/$defs/uuid"
+    },
+    "timestampMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "base64Signature": {
+      "type": "string",
+      "minLength": 40,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    },
+    "publicKeyPem": {
+      "type": "string",
+      "minLength": 80,
+      "maxLength": 512
+    },
+    "toolId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_.-]*$"
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "name",
+        "media_type",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "artifact_id": {
+          "$ref": "#/$defs/artifactId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 127
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "apiError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "request_id"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "details": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

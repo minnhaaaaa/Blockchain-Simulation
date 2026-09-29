@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:agent-event:1",
+  "title": "Signed AgentGuard ledger event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_type",
+    "room_id",
+    "job_id",
+    "actor_public_key",
+    "sequence",
+    "created_at_ms",
+    "previous_event_hash",
+    "payload",
+    "event_hash",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "event_id": {
+      "$ref": "./common.schema.json#/$defs/uuid"
+    },
+    "event_type": {
+      "enum": [
+        "job.created",
+        "job.accepted",
+        "action.proposed",
+        "action.allowed",
+        "action.denied",
+        "action.approval_required",
+        "action.approved",
+        "action.rejected",
+        "action.completed",
+        "job.completed",
+        "job.failed",
+        "security.violation"
+      ]
+    },
+    "room_id": {
+      "$ref": "./common.schema.json#/$defs/roomId"
+    },
+    "job_id": {
+      "$ref": "./common.schema.json#/$defs/jobId"
+    },
+    "actor_public_key": {
+      "$ref": "./common.schema.json#/$defs/publicKeyPem"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "created_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    },
+    "previous_event_hash": {
+      "oneOf": [
+        {
+          "$ref": "./common.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "event_hash": {
+      "$ref": "./common.schema.json#/$defs/sha256"
+    },
+    "signature": {
+      "$ref": "./common.schema.json#/$defs/base64Signature"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "job.created"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "./job.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "job.accepted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "./job-acceptance.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "action.proposed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "./action.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "action.allowed",
+              "action.denied",
+              "action.approval_required",
+              "action.approved",
+              "action.rejected"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "./decision.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "action.completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "./receipt.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": ["job.completed", "job.failed"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "./job-result.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "security.violation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "./security-violation.schema.json"
+          }
+        }
+      }
+    }
+  ]
+}

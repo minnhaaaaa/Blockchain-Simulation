@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:job-result:1",
+  "title": "Terminal job result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "status",
+    "output_artifacts",
+    "summary",
+    "completed_at_ms"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "job_id": {"$ref": "./common.schema.json#/$defs/jobId"},
+    "status": {"enum": ["completed", "failed"]},
+    "output_artifacts": {
+      "type": "array",
+      "items": {"$ref": "./common.schema.json#/$defs/artifactRef"}
+    },
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "string", "minLength": 1, "maxLength": 80},
+            "message": {"type": "string", "minLength": 1, "maxLength": 1000}
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "completed_at_ms": {"$ref": "./common.schema.json#/$defs/timestampMs"}
+  }
+}

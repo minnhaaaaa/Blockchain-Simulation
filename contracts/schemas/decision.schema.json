@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:decision:1",
+  "title": "Action decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "job_id",
+    "action_id",
+    "decision",
+    "basis",
+    "decided_by_public_key",
+    "reason_code",
+    "reason",
+    "policy_hash",
+    "decided_at_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "decision_id": {
+      "$ref": "./common.schema.json#/$defs/uuid"
+    },
+    "job_id": {
+      "$ref": "./common.schema.json#/$defs/jobId"
+    },
+    "action_id": {
+      "$ref": "./common.schema.json#/$defs/actionId"
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "deny",
+        "approval_required",
+        "approved",
+        "rejected"
+      ]
+    },
+    "basis": {
+      "enum": ["policy", "human", "validator"]
+    },
+    "decided_by_public_key": {
+      "$ref": "./common.schema.json#/$defs/publicKeyPem"
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "policy_hash": {
+      "$ref": "./common.schema.json#/$defs/sha256"
+    },
+    "decided_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    }
+  }
+}

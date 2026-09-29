@@ -15,12 +15,17 @@ All operational values are injected at runtime. The stack must not rely on hardc
 | P2P transport | `websockets` 15.x | Already used for direct node connections |
 | Web and JSON API | Flask 3.x | Already declared in the repository and sufficient for the MVP |
 | Local HTTP serving | Flask CLI/Werkzeug | Directly supports the local MVP without an additional integration layer |
-| Frontend | HTML5, CSS3, vanilla JavaScript | No build pipeline or additional framework dependency |
+| Frontend | React 19.3 and TypeScript | Typed, component-driven operational interface |
+| Frontend build | Vite React TypeScript template | Fast development server and production bundle |
+| Frontend routing | React Router | URL-addressable application pages |
+| Server-state client | TanStack Query | Polling, request lifecycle, cache invalidation, and stale-state handling |
+| Runtime schema validation | JSON Schema and Ajv | Shared contract validation at the browser boundary |
+| Frontend tests | Vitest, React Testing Library, Playwright | Component behavior and complete browser workflows |
 | Relational/runtime storage | Python `sqlite3` | Built into Python, transactional, inspectable, and adequate locally |
 | Structured data | JSON with canonical serialization | Human-readable transport and deterministic signing input |
 | Tests | `unittest` and `unittest.IsolatedAsyncioTestCase` | Built into Python; no dependency installation risk |
 
-React, TypeScript, Docker, Redis, PostgreSQL, Kafka, Celery, and a CSS framework are not required for P0. Adding them within the 24-hour milestone would create setup and integration cost without proving additional project requirements.
+Docker, Redis, PostgreSQL, Kafka, Celery, and a CSS framework are not required for P0. React is a required project decision. Styling uses authored CSS with design tokens and component classes rather than adding a utility framework.
 
 ## 3. Existing libraries retained
 
@@ -58,13 +63,22 @@ Blockchain-Simulation/
 │   ├── app.py                # join, heartbeat, peers, leave endpoints
 │   ├── registry.py           # SQLite-backed room membership
 │   └── client.py             # node discovery client
-├── web/
-│   ├── app.py                # dashboard and application APIs
-│   ├── templates/
-│   │   └── index.html
-│   └── static/
-│       ├── app.js
-│       └── styles.css
+├── api/
+│   └── app.py                # Flask application APIs
+├── frontend/
+│   ├── src/
+│   │   ├── api/              # typed client and query hooks
+│   │   ├── components/       # reusable operational UI
+│   │   ├── pages/            # route components
+│   │   ├── styles/           # tokens, reset, layout, components
+│   │   └── types/            # generated schema types
+│   ├── tests/
+│   ├── package.json
+│   └── vite.config.ts
+├── contracts/
+│   ├── schemas/              # shared JSON Schemas
+│   └── openapi.json          # HTTP source of truth
+├── docs/                     # developer and product specifications
 ├── tests/
 │   ├── fixtures/             # test-only external inputs
 │   ├── test_pos_*.py
@@ -97,11 +111,11 @@ The local MVP contains independently startable processes:
           └──────┬──────┘    └─────────────┘    └─────────────┘
                  │ narrow node service
           ┌──────▼────────────────────────────────────────────┐
-          │ Flask application API + AgentGuard worker/gateway │
+          │ Flask JSON API + AgentGuard worker/gateway         │
           └──────┬────────────────────────────────────────────┘
                  │ JSON over HTTP
           ┌──────▼──────┐
-          │ Web browser │
+          │ React/Vite  │
           └─────────────┘
 ```
 
@@ -209,7 +223,7 @@ All request bodies and responses are JSON. Route names are structural API defini
 | `DELETE` | `/api/rooms/{room_id}/members/{node_id}` | Leave the room |
 | `GET` | `/health` | Liveness only |
 
-The room-create body contains the runtime-generated signed manifest. The service rejects replacement of an existing manifest. The join body contains runtime-supplied node ID, name, advertised endpoint, public-key fingerprint, and timestamp. The server derives expiry using configured TTL and server time.
+The room-create body contains the runtime-generated signed manifest. The service rejects replacement of an existing manifest. The join body contains runtime-supplied node ID, name, advertised endpoint, and public-key fingerprint. The server assigns membership timestamps and derives expiry using configured TTL and server time.
 
 ### Existing P2P protocol
 
@@ -233,8 +247,11 @@ The P0 web/API surface is:
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/api/status` | Node, room, provider, and service status |
+| `POST` | `/api/room-session` | Ask the local node to create/sign or fetch/verify/join a room |
+| `GET` | `/api/tools` | List runtime-registered tool capabilities for policy construction |
 | `GET` | `/api/peers` | Discovered and connected peer summaries |
 | `GET` | `/api/chain` | Chain height and recent block summaries |
+| `GET` | `/api/chain/{block_id}` | Inspect one block and its ordered AgentGuard events |
 | `GET` | `/api/stakes` | Current authenticated stake view |
 | `POST` | `/api/artifacts` | Upload a user-selected artifact |
 | `POST` | `/api/jobs` | Create a job with a complete policy |
@@ -310,7 +327,7 @@ The provider cannot call tools directly. Only the gateway can dispatch registere
 
 ## 12. Frontend
 
-The dashboard uses server-rendered HTML for the initial shell and vanilla JavaScript `fetch` calls for data. Timed polling is the P0 live-update mechanism because it is simple and reliable. Server-Sent Events may replace or supplement it in P1.
+The dashboard is a React 19.3 single-page application written in TypeScript and built with Vite. React Router owns route state. TanStack Query owns server state, request lifecycle, polling, and cache invalidation. Ajv validates high-risk payloads against the shared JSON Schemas at the client boundary. The full page, layout, content, state, and responsive specification is in `docs/FRONTEND_SPEC.md`.
 
 Frontend rules:
 
@@ -320,6 +337,8 @@ Frontend rules:
 - Empty API results produce honest empty states.
 - All actions show pending, accepted, finalized, or rejected server state; optimistic UI must not imply blockchain finality.
 - Private keys, full uploaded documents, and provider credentials are never rendered.
+- Components consume schema-derived TypeScript types instead of redeclaring payload shapes.
+- The application uses client-rendered React; React Server Components are not part of this architecture.
 
 ## 13. Security controls for the MVP
 
@@ -348,7 +367,7 @@ Use the standard library test runner:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Test layers:
+Backend test layers:
 
 - Pure unit tests for canonicalization, policies, event transitions, eligibility, and signatures.
 - Async unit tests for peer and signalling clients.
@@ -357,11 +376,18 @@ Test layers:
 - Multi-process end-to-end test for signalling, three nodes, one job, one finalized receipt, and malicious rejections.
 - Manual browser acceptance using the checklist in `PLAN.md`.
 
+Frontend test layers:
+
+- Vitest unit tests for formatters, query-key factories, status derivation, and schema adapters.
+- React Testing Library tests for forms, errors, empty states, approvals, and accessible interaction.
+- Playwright tests for room creation/join, job creation, approval, finality, violation display, and reconnection.
+- Separate TypeScript type checking because Vite transpiles TypeScript without performing full type checking.
+
 Tests use temporary directories and dynamically allocated ports. A test must not assume that a particular local port is free.
 
 ## 15. Dependency policy
 
-P0 should work with the existing `requirements.txt` plus Python's standard library. If implementation reveals a genuinely necessary dependency, it must be:
+The Python backend should work with the existing `requirements.txt` plus Python's standard library. The React application has a separate locked npm dependency graph under `frontend/`. If implementation reveals another genuinely necessary dependency, it must be:
 
 - Added with an exact version.
 - Used directly by a required feature.

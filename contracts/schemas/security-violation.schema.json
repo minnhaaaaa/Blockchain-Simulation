@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:security-violation:1",
+  "title": "Security violation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "violation_id",
+    "job_id",
+    "category",
+    "reason_code",
+    "message",
+    "evidence_hash",
+    "detected_at_ms"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "violation_id": {"$ref": "./common.schema.json#/$defs/uuid"},
+    "job_id": {"$ref": "./common.schema.json#/$defs/jobId"},
+    "action_id": {
+      "oneOf": [
+        {"$ref": "./common.schema.json#/$defs/actionId"},
+        {"type": "null"}
+      ]
+    },
+    "category": {
+      "enum": [
+        "policy",
+        "signature",
+        "replay",
+        "sequence",
+        "artifact",
+        "consensus"
+      ]
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "message": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "evidence_hash": {"$ref": "./common.schema.json#/$defs/sha256"},
+    "detected_at_ms": {"$ref": "./common.schema.json#/$defs/timestampMs"}
+  }
+}

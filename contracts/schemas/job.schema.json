@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:job:1",
+  "title": "Agent job",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "room_id",
+    "owner_public_key",
+    "title",
+    "instructions",
+    "provider_id",
+    "input_artifacts",
+    "policy",
+    "created_at_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "job_id": {
+      "$ref": "./common.schema.json#/$defs/jobId"
+    },
+    "room_id": {
+      "$ref": "./common.schema.json#/$defs/roomId"
+    },
+    "owner_public_key": {
+      "$ref": "./common.schema.json#/$defs/publicKeyPem"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "provider_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "input_artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "./common.schema.json#/$defs/artifactRef"
+      }
+    },
+    "policy": {
+      "$ref": "./policy.schema.json"
+    },
+    "created_at_ms": {
+      "$ref": "./common.schema.json#/$defs/timestampMs"
+    },
+    "expires_at_ms": {
+      "oneOf": [
+        {
+          "$ref": "./common.schema.json#/$defs/timestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}
