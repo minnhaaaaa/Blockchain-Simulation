@@ -3,6 +3,8 @@ from typing import List, Dict
 from datetime import datetime
 from ecdsa import SigningKey, SECP256k1, VerifyingKey
 import binascii
+from canonical import signing_bytes
+from consensus.poa import authority
 from shared_blockchain_structures import (
     Transaction,
     BaseBlock,
@@ -16,6 +18,7 @@ from shared_blockchain_structures import (
 GAS_PRICE = 0.001 # coin per gas unit
 MINER_REWARD = 6
 GENESIS_ALLOCATION = 50
+POA_BLOCK_DOMAIN = "agentguard.poa-block.v1"
 
 class Block(BaseBlock):
     def __init__(self, prevHash:str, transactions:List[Transaction], ts=None, id=None):
@@ -23,9 +26,10 @@ class Block(BaseBlock):
         self.miner_node_id= None
         self.miner_public_key= None
         self.signature = None # This will hold the digital signature from the miner
-        self.miners_list = None # List of miner nodes
+        self.miners_list = None # Derived authority set at this height (never a source of authority)
+        self.authority_updates = [] # Administrator-signed authority-set updates carried by this block
 
-    def to_dict(self):
+    def unsigned_dict(self):
         return {
             "id":self.id,
             "prevHash":self.prevHash,
@@ -34,29 +38,26 @@ class Block(BaseBlock):
             "miner_node_id":self.miner_node_id,
             "miner_public_key":self.miner_public_key,
             "miners_list":self.miners_list,
-            "signature":self.signature,
+            "authority_updates":self.authority_updates,
             "files":self.files
         }
 
+    def to_dict(self):
+        block = self.unsigned_dict()
+        block["signature"] = self.signature
+        return block
+
     def __str__(self):
-        return json.dumps(self.to_dict())
+        return signing_bytes(POA_BLOCK_DOMAIN, self.to_dict()).decode("utf-8")
     
     @property ## Now you can access hash like this myblock.hash
     def hash(self):
-        block_str=json.dumps(self.to_dict())
-        return hashlib.sha256(block_str.encode()).hexdigest()
+        return hashlib.sha256(str(self).encode()).hexdigest()
       
     def get_message_to_sign(self):
-        return json.dumps({
-            "id": self.id,
-            "ts": self.ts,
-            "prevHash": self.prevHash,
-            "transactions": [tx.to_dict() for tx in self.transactions],
-            "miner_node_id": self.miner_node_id,
-            "miner_public_key": self.miner_public_key,
-            "miners_list": self.miners_list,
-            "files":self.files
-        }, sort_keys=True).encode()
+        # Canonical, domain-separated, and covering every consensus field
+        # including the transactions' own signatures.
+        return signing_bytes(POA_BLOCK_DOMAIN, self.unsigned_dict())
     
     def is_valid_signature(self):
         try:
@@ -141,6 +142,11 @@ class Chain(CommonChain):
         Chain.instance.chain=blockList.copy()
                 
     def isValidBlock(self, block: Block, reqd_miner_node_id, reqd_miner_public_key):
+        try:
+            authority.validate_block_authority(Chain.instance.chain, block)
+        except authority.AuthorityError as e:
+            print(f"Invalid authority data: {e}")
+            return False
         if block.miner_node_id != reqd_miner_node_id:
             print("Mined by malicious miner")
             return False
@@ -226,7 +232,7 @@ class Chain(CommonChain):
 
 
 # Is valid chain function
-def isvalidChain(blockList:List[Block]):
+def isvalidChain(blockList:List[Block], genesis_hash:str=None):
     """
         Validate a chain offered by a peer.
 
@@ -243,8 +249,14 @@ def isvalidChain(blockList:List[Block]):
         return False
 
     genesis=blockList[0]
+    if genesis_hash is not None and genesis.hash!=genesis_hash:
+        print("\nGenesis block does not match the trusted genesis\n")
+        return False
     if genesis.prevHash:
         print("\nGenesis block must not have a previous hash\n")
+        return False
+    if genesis.authority_updates:
+        print("\nGenesis block cannot carry authority updates\n")
         return False
     if len(genesis.transactions)!=1:
         print("\nGenesis block must hold exactly one transaction\n")
@@ -280,9 +292,13 @@ def isvalidChain(blockList:List[Block]):
         if(i<=0):
             continue
 
-        prev_miners=blockList[i-1].miners_list or []
-        if currBlock.miner_node_id not in prev_miners:
-            print("\nBlock mined by a node that was not an authority\n")
+        # The signer must be an authority derived from genesis plus
+        # administrator-signed updates in earlier blocks; the block's own
+        # miners_list is only checked for equality with that derived set.
+        try:
+            authority.validate_block_authority(blockList[:i], currBlock)
+        except authority.AuthorityError as e:
+            print(f"\nBlock rejected: {e}\n")
             return False
 
         mem_pool=[]

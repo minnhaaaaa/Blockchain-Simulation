@@ -6,6 +6,7 @@ import copy
 import threading
 import socket
 from consensus.poa.blockchain_structures import Transaction, Block, Wallet, Chain, isvalidChain
+from consensus.poa import authority
 from shared_blockchain_structures import (
     verify_signature,
     remember_message_id,
@@ -72,7 +73,9 @@ def get_contract_code_from_notepad():
     return contract_code
 
 class Peer:
-    def __init__(self, host, port, name, activate_disk_load, activate_disk_save):
+    def __init__(self, host, port, name, activate_disk_load, activate_disk_save, genesis_hash=None):
+        # When given, the only genesis this node will ever accept (trust anchor).
+        self.genesis_hash = genesis_hash
         self.host = host
         self.port = port
         self.name = name
@@ -275,15 +278,9 @@ class Peer:
         return pkt
 
     async def broadcast_miners_list(self, miners_list, activation_block):
-        pkt={
-            "type":"miners_list_update",
-            "id":str(uuid.uuid4()),
-            "miners_list": miners_list,
-            "activation_block": activation_block,
-        }
-        message = json.dumps(pkt, sort_keys=True).encode()
-        signature = self.wallet.private_key.sign(message)
-        pkt["signature"] = signature.hex()
+        """Administrator only: sign an authority-set update and gossip it."""
+        pkt = authority.sign_update(self.wallet.private_key, str(uuid.uuid4()), miners_list, activation_block)
+        pkt["type"] = "miners_list_update"
         remember_message_id(self.seen_message_ids, pkt["id"])
         self.miner_updates.append(pkt)
         await self.broadcast_message(pkt)
@@ -304,39 +301,8 @@ class Peer:
         return Chain.instance.chain[0].miner_public_key
 
     def verify_miner_update(self, pkt):
-        """
-            Check one miners_list_update packet against the admin's key.
-        """
-        admin_public_key = self.get_admin_public_key()
-        if not admin_public_key or not isinstance(pkt, dict):
-            return False
-
-        miners_list = pkt.get("miners_list")
-        activation_block = pkt.get("activation_block")
-        signature_hex = pkt.get("signature")
-
-        if not isinstance(miners_list, list) or not miners_list:
-            return False
-        if any(not isinstance(node_id, str) for node_id in miners_list):
-            return False
-        if not isinstance(activation_block, int) or isinstance(activation_block, bool) or activation_block < 0:
-            return False
-        if not isinstance(signature_hex, str):
-            return False
-
-        message = json.dumps({
-            "type": "miners_list_update",
-            "id": pkt.get("id"),
-            "miners_list": miners_list,
-            "activation_block": activation_block,
-        }, sort_keys=True).encode()
-
-        try:
-            signature = binascii.unhexlify(signature_hex)
-        except Exception:
-            return False
-
-        return verify_signature(admin_public_key, signature, message)
+        """Check one miners_list_update packet against the administrator's key."""
+        return authority.verify_update(self.get_admin_public_key(), pkt)
 
     def apply_network_details(self):
         """
@@ -388,6 +354,8 @@ class Peer:
         newBlock.miner_public_key = new_block_miner_public_key
         newBlock.miners_list = new_block_miners_list
         newBlock.files=block_dict["files"]
+        updates = block_dict.get("authority_updates") or []
+        newBlock.authority_updates = updates if isinstance(updates, list) else []
         newBlock.signature = new_block_signature
         return newBlock
 
@@ -413,17 +381,27 @@ class Peer:
         return None
 
     def get_current_miners_list(self):
-        miners_list = None
-        if self.miners and len(Chain.instance.chain) == self.miners[0][1]:
-            miners_list = self.miners[0][0]
-            for i in range(1, len(self.miners)):
-                if self.miners[i][1] == len(Chain.instance.chain):
-                    miners_list = self.miners[i][0]
-                else:
-                    break
-        else:
-            miners_list = Chain.instance.chain[-1].miners_list
-        return miners_list or []
+        """
+            The authority set for the next block, derived from the chain alone
+            (genesis plus administrator-signed updates already in blocks).
+            Gossiped updates in self.miners are proposals until a block
+            carries them and never grant authority by themselves.
+        """
+        try:
+            return authority.authority_set_for_height(Chain.instance.chain, len(Chain.instance.chain))
+        except authority.AuthorityError:
+            return []
+
+    def pending_authority_updates(self):
+        """Verified, not-yet-included administrator updates to carry in the next block."""
+        included = {u["id"] for b in Chain.instance.chain for u in (b.authority_updates or [])}
+        height = len(Chain.instance.chain)
+        pending = []
+        for pkt in self.miner_updates:
+            if pkt.get("id") in included or not self.verify_miner_update(pkt) or pkt["activation_block"] <= height:
+                continue
+            pending.append({k: pkt[k] for k in ("id", "miners_list", "activation_block", "signature")})
+        return pending[:authority.MAX_UPDATES_PER_BLOCK]
 
     def discard_server_connection_details(self, websocket):
         self.server_connections.discard(websocket)
@@ -848,7 +826,7 @@ class Peer:
                 block=self.block_dict_to_block(block_dict)
                 block_list.append(block)
 
-            if not isvalidChain(block_list):
+            if not isvalidChain(block_list, getattr(self, 'genesis_hash', None)):
                 print("\nInvalid Chain\n")
                 return
 
@@ -1390,6 +1368,7 @@ class Peer:
                                 newBlock.miner_node_id = self.node_id
                                 newBlock.miner_public_key = self.wallet.public_key_pem
                                 newBlock.miners_list = miners_list
+                                newBlock.authority_updates = self.pending_authority_updates()
                                 newBlock.files=self.file_hashes.copy()
                                 self.sign_block(newBlock)
 

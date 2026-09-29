@@ -2,6 +2,7 @@ import json, uuid, base64, hashlib, ipaddress, socket
 from typing import List, Dict
 from datetime import datetime
 from ecdsa import VerifyingKey, SigningKey, SECP256k1
+from canonical import DOMAIN_TX, signing_bytes
 
 # ECDSA signatures are hashed with SHA-256. python-ecdsa defaults to SHA-1,
 # which is collision broken and unsuitable for signing attacker-composable
@@ -125,7 +126,9 @@ class Transaction:
         return hash(self.id)
 
     def __str__(self):
-        return json.dumps(self.to_dict())
+        # Canonical, domain-separated signing string: dictionary insertion
+        # order and relay/re-serialisation cannot change the signed bytes.
+        return signing_bytes(DOMAIN_TX, self.to_dict()).decode("utf-8")
     
     def is_valid_signature(self):
         if not verify_signature(self.sender, self.sign, str(self)):
