@@ -17,7 +17,7 @@ Show `COMMAND_LOG.md`:
 1. The exact clone command succeeds.
 2. The documented `cd BlockChain_Prototype` fails because the clone is named `Blockchain-Simulation`.
 3. Python/pip commands fail on this host.
-4. No signalling, AgentGuard node, dashboard, or test command exists.
+4. Latest main contains signalling/runtime backend code and tests, but has no composed node/application launch sequence and no dashboard/frontend.
 
 ## 2:30-3:30 — Acceptance outcome
 
@@ -42,4 +42,3 @@ These are operator-entered examples, not production defaults or source constants
 - Malicious attempts: read an artifact not granted by the policy; replay a previously submitted completion event ID.
 
 Generate the room ID in the UI at runtime. Do not place any of these values into application source or startup fixtures.
-

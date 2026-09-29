@@ -1,7 +1,11 @@
 # Clean-Terminal Command Log
 
-Timestamp: 2026-09-29 21:39:58 +05:30  
-Shell: PowerShell  
+Timestamp: 2026-09-29 21:39:58 +05:30
+
+Re-verification: 2026-09-29 21:56:37 +05:30 against `origin/main` commit `144ae83`
+
+Shell: PowerShell
+
 Result legend: PASS means the exact documented command completed successfully; FAIL means it did not.
 
 ## Checklist
@@ -13,13 +17,14 @@ Result legend: PASS means the exact documented command completed successfully; F
 | 3 | `python -m venv venv` | FAIL | `python` is not available on `PATH`. |
 | 4 | `venv\Scripts\activate` | FAIL | No virtual environment exists; this is also not the normal PowerShell activation spelling. |
 | 5 | `pip install -r requirements.txt` | FAIL | `pip` is not available on `PATH`. |
-| 6 | signalling-server start | FAIL | No implementation or command is documented. |
-| 7 | first AgentGuard node start | FAIL | No implementation or command is documented. |
-| 8 | second AgentGuard node start | FAIL | No implementation or command is documented. |
-| 9 | third AgentGuard node start | FAIL | No implementation or command is documented. |
+| 6 | `python -m signalling --config "C:\Users\rishav raj\Desktop\project\block chain\Blockchain-Simulation\verification\runtime\signalling-config.json"` | FAIL | Command is documented on latest main, but `python` is unavailable. |
+| 7 | first AgentGuard node start | FAIL | No composed application/node launch command is documented. |
+| 8 | second AgentGuard node start | FAIL | No composed application/node launch command is documented. |
+| 9 | third AgentGuard node start | FAIL | No composed application/node launch command is documented. |
 | 10 | dashboard start | FAIL | No implementation or command is documented. |
 | 11 | `python start_peer.py` | FAIL | `python` is not available on `PATH`; this is the legacy interactive peer, not the specified AgentGuard node service. |
-| 12 | `python -m unittest discover -s tests -p "test_*.py"` | FAIL | `python` is unavailable and `tests/` is absent. |
+| 12 | `python -m unittest discover -s tests -p "test_*.py"` | FAIL | Backend tests exist on latest main, but `python` is unavailable. |
+| 13 | `python -m unittest discover -s tests -p "test_*.py" -v` | FAIL | Developer 2's documented test command fails because `python` is unavailable. |
 
 ## Verbatim output
 
@@ -93,8 +98,30 @@ Line |
 Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
 ```
 
+### 8. Start signalling on latest main with runtime-supplied configuration
+
+```text
+python:
+Line |
+   2 |  python -m signalling --config "C:\Users\rishav raj\Desktop\project\bl …
+     |  ~~~~~~
+     | The term 'python' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+```
+
+### 9. Run Developer 2's verbose backend test command
+
+```text
+python:
+Line |
+   2 |  python -m unittest discover -s tests -p "test_*.py" -v
+     |  ~~~~~~
+     | The term 'python' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+```
+
 ## Missing-command evidence
 
-Repository searches found none of these expected paths: `signalling/`, `agentguard/`, `frontend/`, `dashboard/`, or `tests/`. No `package.json`, HTML, JavaScript, TypeScript, or TSX file exists. Consequently there are no exact signalling, three-node, or dashboard commands to execute.
+Latest `origin/main` contains `signalling/`, `agentguard/`, `api/`, and backend `tests/`. It still has no `frontend/`, `dashboard/`, `package.json`, HTML, JavaScript, TypeScript, or TSX file. There is no documented composition/start command for the application API with a real node adapter, no three-node command set, and no dashboard command.
 
-The clone command targets the public `TatHack-Tathva` repository and produced commit `e038144`. The active workspace instead tracks the `minnhaaaaa` fork and is at commit `34c9514`, so the documented clean-clone command does not reproduce the workspace being reviewed.
+The clone command targets the public `TatHack-Tathva` repository and produced commit `e038144`. The active workspace instead tracks the `minnhaaaaa` fork (`rishav` at `7aa609e`, latest `origin/main` at `144ae83`), so the documented clean-clone command does not reproduce the release candidate being reviewed.

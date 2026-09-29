@@ -1,8 +1,10 @@
 # Screenshot Evidence Manifest
 
-Verification timestamp: 2026-09-29 21:39:58 +05:30
+Initial verification: 2026-09-29 21:39:58 +05:30
 
-No screenshots were captured because the repository contains no dashboard/frontend implementation and no signalling or AgentGuard node service capable of producing the required states. Capturing unrelated terminal or planning-document images would not prove room creation, peer discovery, job submission, approval, receipt finalization, malicious-action rejection, refresh integrity, or empty-room isolation.
+Re-verification: 2026-09-29 21:56:37 +05:30 against `origin/main` `144ae83`
+
+No screenshots were captured because the latest repository still contains no dashboard/frontend implementation. Its signalling/runtime backend cannot produce the complete required states without Python, a real node adapter, and application composition. Computer-use inventory also found no open browser tab running the dashboard. Capturing unrelated terminal or planning-document images would not prove room creation, peer discovery, job submission, approval, receipt finalization, malicious-action rejection, refresh integrity, or empty-room isolation.
 
 Required evidence remains:
 
