@@ -1,6 +1,12 @@
 import os
 import json
 
+STORAGE_FORMAT_VERSION = 2
+
+
+class LegacyStorageError(Exception):
+    """Persisted state predates the canonical SHA-256 signing domain."""
+
 BASE_STORAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_consensus_dir(consensus):
@@ -55,7 +61,7 @@ def load_key(consensus):
 def save_chain(chain, consensus):
     path = os.path.join(get_consensus_dir(consensus), "chain.json")
     with open(path, 'w') as f:
-        json.dump(chain, f, indent=4)
+        json.dump({"format_version": STORAGE_FORMAT_VERSION, "data": chain}, f, indent=4)
 
 
 def load_chain(consensus):
@@ -63,7 +69,13 @@ def load_chain(consensus):
     if not os.path.exists(path):
         return None
     with open(path, 'r') as f:
-        return json.load(f)
+        doc = json.load(f)
+    if not isinstance(doc, dict) or doc.get("format_version") != STORAGE_FORMAT_VERSION:
+        raise LegacyStorageError(
+            f"{path} was written under the legacy SHA-1 signing domain and cannot be mixed with the "
+            "current SHA-256 canonical domain. Delete it and start a clean network."
+        )
+    return doc["data"]
 
 
 # === Peers ===

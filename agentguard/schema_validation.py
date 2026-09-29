@@ -70,6 +70,10 @@ class SchemaValidator:
         if "allOf" in schema:
             for item in schema["allOf"]:
                 self._validate(value, item, path, current)
+        if "anyOf" in schema:
+            # was silently ignored, which made every `not: {anyOf: ...}` (e.g. a join request) fail
+            if not any(self._matches(value, item, current) for item in schema["anyOf"]):
+                raise SchemaValidationError(path, "must match at least one alternative")
         if "oneOf" in schema:
             if sum(self._matches(value, item, current) for item in schema["oneOf"]) != 1:
                 raise SchemaValidationError(path, "must match exactly one alternative")
