@@ -12,6 +12,7 @@ The next milestone turns the simulator into a room-discovered, policy-controlled
 - [React product/interface specification](docs/FRONTEND_SPEC.md)
 - [Developer 1: protocol and PoS](docs/DEV_1_PROTOCOL.md)
 - [Developer 2: signalling and runtime](docs/DEV_2_RUNTIME.md)
+- [Developer 2 implementation guide](docs/DEV_2_IMPLEMENTATION.md)
 - [Developer 3: React and integration](docs/DEV_3_FRONTEND.md)
 
 Machine-readable contracts live in [`contracts/`](contracts/). This planning package specifies the target implementation; features remain subject to the definition of done in `PLAN.md` until their code and tests are merged.

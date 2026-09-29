@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:job-complete-request:1",
+  "title": "Complete job request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "output_artifact_ids"],
+  "properties": {
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "output_artifact_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "./common.schema.json#/$defs/artifactId"}
+    }
+  }
+}
