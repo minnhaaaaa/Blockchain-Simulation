@@ -48,6 +48,7 @@ The event validator must recompute `event_hash`, verify `signature` using `actor
 | `room-session-request.schema.json` | React client | Local application/node | Browser-safe create/join inputs; signing stays server-side |
 | `policy.schema.json` | Job owner | Gateway and validators | Deny-by-default permissions and limits |
 | `job-create-request.schema.json` | React client | Application API | User-authored job fields before IDs/signatures are assigned |
+| `job-complete-request.schema.json` | Worker/UI | Application API | Terminal summary and job-owned output artifact IDs |
 | `job.schema.json` | Job owner/API | Worker, validators, UI | Immutable job request |
 | `job-acceptance.schema.json` | Worker | Validators and UI | Worker acceptance event payload |
 | `action.schema.json` | Provider/worker | Gateway, validators, UI | Proposed typed tool invocation |

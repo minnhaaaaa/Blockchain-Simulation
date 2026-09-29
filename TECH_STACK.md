@@ -261,6 +261,7 @@ The P0 web/API surface is:
 | `POST` | `/api/jobs/{job_id}/actions` | Submit an action proposal |
 | `POST` | `/api/jobs/{job_id}/actions/{action_id}/decision` | Owner approves or rejects a waiting action |
 | `POST` | `/api/jobs/{job_id}/run` | Run the configured worker for the job |
+| `POST` | `/api/jobs/{job_id}/complete` | Submit a terminal result after every proposed action is terminal |
 | `GET` | `/api/violations` | Read policy and validation violations |
 
 APIs reject unknown fields where practical, return stable machine-readable error codes, and never substitute sample values for missing fields.

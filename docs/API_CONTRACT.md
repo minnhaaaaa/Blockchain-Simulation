@@ -61,6 +61,8 @@ Command responses return a submission object containing runtime-generated `submi
 
 `POST .../actions` supports a manual or provider-produced proposal. The gateway records the proposal, evaluates policy, records the decision, and executes only when allowed/approved. `POST .../decision` accepts only `approved` or `rejected` from the job owner for a currently pending action.
 
+`POST /api/jobs/{job_id}/complete` submits a signed terminal result only after every proposed action is completed, denied, or rejected and no approval is pending. Every referenced output artifact must belong to that job.
+
 `GET /api/violations` returns evidence summaries visible to the current room. It never returns secret request headers, credentials, raw private artifacts, or private keys.
 
 ## 6. Stable error codes

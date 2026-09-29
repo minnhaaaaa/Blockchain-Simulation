@@ -548,6 +548,35 @@
         }
       }
     },
+    "/api/jobs/{job_id}/complete": {
+      "parameters": [
+        {"$ref": "#/components/parameters/JobId"}
+      ],
+      "post": {
+        "tags": ["Jobs"],
+        "operationId": "completeJob",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "./schemas/job-complete-request.schema.json"}
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Terminal job event submitted",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Submission"}
+              }
+            }
+          },
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "422": {"$ref": "#/components/responses/ValidationError"}
+        }
+      }
+    },
     "/api/jobs/{job_id}/actions": {
       "parameters": [
         {"$ref": "#/components/parameters/JobId"}
