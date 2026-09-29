@@ -1,4 +1,5 @@
 import asyncio, websockets
+from websockets.exceptions import ConnectionClosed
 import json, uuid, base64
 from typing import Set, Dict, List, Tuple
 import copy
@@ -582,14 +583,14 @@ class Peer:
             pkt={
                 "type": "network_details",
                 "id":str(uuid.uuid4()),
-                "admin": self.admin_id,
-                "miners": self.miners
+                "miner_updates": []
             }
             await self.send_message(websocket, pkt, False)
 
         elif t=="network_details":
-            self.admin_id = msg["admin"]
-            self.miners = msg["miners"]
+            for pkt_update in msg.get("miner_updates") or []:
+                if isinstance(pkt_update, dict) and "miners_list" in pkt_update:
+                    self.miners.append([pkt_update["miners_list"], pkt_update.get("activation_block")])
             pkt={
                 "type":"chain_request",
                 "id":str(uuid.uuid4())
@@ -599,7 +600,7 @@ class Peer:
         elif t=="new_tx":
             tx_str=msg["transaction"]
             tx=json.loads(tx_str)
-            transaction: Transaction=Transaction(tx['payload'], tx['sender'], tx['receiver'], tx['id'], tx['timestamp'])
+            transaction: Transaction=Transaction(tx['payload'], tx['sender'], tx['receiver'], tx['id'], tx['ts'])
             if Chain.instance.transaction_exists_in_chain(transaction):
                 print(f"{self.name} Transaction already exists in chain")
                 return
@@ -763,7 +764,7 @@ class Peer:
                 msg=json.loads(raw)
                 await self.handle_messages(websocket, msg)
 
-        except websockets.exceptions.ConnectionClosed:
+        except ConnectionClosed:
             print(f"Inbound Connection Closed: {peer_addr}")
 
         finally:

@@ -1,4 +1,5 @@
 import asyncio, websockets, traceback, hashlib
+from websockets.exceptions import ConnectionClosed
 import argparse, json, uuid, base64
 import threading, socket, os, subprocess
 from datetime import datetime, timedelta
@@ -268,7 +269,7 @@ class Peer:
             newBlock.sign=base64.b64decode(sign_b64)
 
         stakers_list:List[Stake]=[]
-        for staker_dict in block_dict["stakers"]:
+        for staker_dict in block_dict.get("stakers") or []:
             new_Stake=self.stake_dict_to_stake(staker_dict)
             if(not new_Stake):
                 continue
@@ -830,7 +831,7 @@ class Peer:
                 msg=json.loads(raw)
                 await self.handle_messages(websocket, msg)
 
-        except websockets.exceptions.ConnectionClosed:
+        except ConnectionClosed:
             print(f"Inbound Connection Closed: {peer_addr}")
 
         finally:
@@ -1379,14 +1380,15 @@ class Peer:
             newBlock2.seed=seed
             newBlock2.vrf_proof=vrf_proof
 
-            Chain.instance.chain.append(newBlock1)
             newBlock1.staked_amt=self.staked_amt
             newBlock1.creator=self.wallet.public_key_pem
-            newBlock1.stakers=self.current_stakers
+            newBlock1.stakers=list(self.current_stakes)
 
             newBlock2.staked_amt=self.staked_amt
             newBlock2.creator=self.wallet.public_key_pem
-            newBlock2.stakers=self.current_stakers
+            newBlock2.stakers=list(self.current_stakes)
+
+            Chain.instance.chain.append(newBlock1)
             
 
             self.last_epoch_end_ts=datetime.now()

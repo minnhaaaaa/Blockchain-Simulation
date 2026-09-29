@@ -9,10 +9,13 @@ from shared_blockchain_structures import (
     Wallet,
     txs_to_json_digestable_form,
     valid_chain_length,
-    transaction_exists_in_block_list
+    transaction_exists_in_block_list,
+    verify_signature
 )
 GAS_PRICE = 0.001 # coin per gas unit
 MAX_OUTPUT=2**256
+MINER_REWARD = 6
+GENESIS_ALLOCATION = 50
 
 class Stake:
     def __init__(self, staker:str, amt:int, ts=None):
@@ -33,7 +36,13 @@ class Stake:
 
     def __str__(self):
         return json.dumps(self.to_dict())
-    
+
+    def __eq__(self, other):
+        return isinstance(other, Stake) and self.staker==other.staker
+
+    def __hash__(self):
+        return hash(self.staker)
+
 class Block(BaseBlock):
     def __init__(self, prevHash:str, transactions:List[Transaction], ts=None, id=None):
         super().__init__(prevHash, transactions, ts, id)
@@ -48,7 +57,24 @@ class Block(BaseBlock):
         self.is_valid:bool=True
         self.slash_creator=False
 
+    def stakers_to_dict_list(self):
+        stakes_dict_list:List[Dict]=[]
+        for stake in sorted(self.stakers, key=lambda stake: stake.id):
+            stake_dict=stake.to_dict()
+            if(stake.sign):
+                stake_dict["sign"]=base64.b64encode(stake.sign).decode()
+            stakes_dict_list.append(stake_dict)
+        return stakes_dict_list
+
     def to_dict(self):
+        # `stakers` and `seed` belong in the signed and hashed dictionary.
+        # While they sat outside it, the stake set a block declared was not
+        # covered by the creator's signature or by the block hash, so a relay
+        # could strip it down to the creator's own stake. Both the VRF
+        # threshold - staked_amt / total stake - and the heaviest chain rule
+        # are computed from that set, so stripping it handed the attacker a
+        # lottery they always win on a chain that always outweighs the
+        # honest one.
         return {
             "id":self.id,
             "prevHash":self.prevHash,
@@ -56,23 +82,15 @@ class Block(BaseBlock):
             "ts":self.ts,
             "creator":self.creator,
             "staked_amt":self.staked_amt,
+            "seed":self.seed,
+            "stakers":self.stakers_to_dict_list(),
             "files":self.files
         }
     
     def to_dict_with_stakers(self):
         block_dict=self.to_dict()
-        
-        stakes_dict_list:List[Dict]=[]
-        for stake in self.stakers:
-            stake_dict=stake.to_dict()
-            if(stake.sign):
-                stake_dict["sign"]=base64.b64encode(stake.sign).decode()
-            stakes_dict_list.append(stake_dict)
-
-        block_dict["stakers"]=stakes_dict_list
-        if(self.vrf_proof and self.seed):
+        if(self.vrf_proof):
             block_dict["vrf_proof_b64"]=base64.b64encode(self.vrf_proof).decode()
-            block_dict["seed"]=self.seed
         return block_dict
 
 
@@ -123,9 +141,9 @@ def calc_balance_block_list(block_list:List[Block], publicKey, i, mem_pool:List[
             elif transaction.receiver==publicKey:
                 bal+=transaction.payload
         if block_list[i].creator==publicKey:
-            bal+=6 #Miner reward
+            bal+=MINER_REWARD #Miner reward
     
-    for transaction in mem_pool:
+    for transaction in mem_pool or []:
         if transaction.sender==publicKey:
             if transaction.receiver == "deploy" or transaction.receiver == "invoke":
                 bal-=transaction.payload[-1]
@@ -162,7 +180,7 @@ class Chain(CommonChain):
             return
 
         if publicKey and not blockList:
-            genesis_block=Block(None, [Transaction(50,"Genesis",publicKey)])
+            genesis_block=Block(None, [Transaction(GENESIS_ALLOCATION,"Genesis",publicKey)])
             genesis_block.creator=publicKey
             genesis_block.sign=privatekey.sign(str(genesis_block).encode())
             super().__init__(genesis_block=genesis_block)
@@ -202,35 +220,53 @@ class Chain(CommonChain):
         # if we don't store this then a person can send two valid transaction 
         # less than his acc balance but the sum of it could be greater 
         # than his account balance
+        seen_ids=set()
         for transaction in block.transactions:
+            if transaction.sender=="Genesis":
+                print("\nOnly the genesis block may mint coins\n")
+                return False
+
             if Chain.instance.transaction_exists_in_chain(transaction):
                 print("Duplicate transaction(s)")
                 return False
-            sign=transaction.sign
-            vk=VerifyingKey.from_pem(transaction.sender)
-            try:
-                vk.verify(sign, str(transaction).encode())
-            except:
+
+            # Repeats inside a single block were never rejected.
+            if transaction.id in seen_ids:
+                print("Duplicate transaction(s) within block")
+                return False
+            seen_ids.add(transaction.id)
+
+            if not verify_signature(transaction.sender, transaction.sign, str(transaction)):
                 print("\nFake Transactions\n")
                 return False
-            
+
             amount = 0
             if transaction.receiver == "deploy" or transaction.receiver == "invoke":
+                if not isinstance(transaction.payload, list) or not transaction.payload:
+                    return False
                 amount = transaction.payload[-1]
             else:
                 amount = transaction.payload
+            if not isinstance(amount, (int, float)) or isinstance(amount, bool):
+                return False
             if amount>Chain.instance.calc_balance(publicKey=transaction.sender,pending_transactions=mem_pool,current_stakes=block.stakers) or amount<=0: 
                 # we have to make sure the current transactions are included when checking for balance
                 return False
             mem_pool.append(transaction)
 
         currStakes=[]
+        seen_stakers=set()
         for stake in block.stakers:
-            vk=VerifyingKey.from_pem(stake.staker)
-            try:
-                vk.verify(stake.sign, str(stake).encode())
-            except BadSignatureError:
+            if not verify_signature(stake.staker, stake.sign, str(stake)):
                 print("\nInvalid signature on stake\n")
+                return False
+            # One staker counted twice in a block inflates both the total
+            # stake and the weight of the chain.
+            if stake.staker in seen_stakers:
+                print("\nDuplicate staker in block\n")
+                return False
+            seen_stakers.add(stake.staker)
+            if not isinstance(stake.amt, (int, float)) or isinstance(stake.amt, bool):
                 return False
             if(stake.amt<=0 or stake.amt>Chain.instance.calc_balance(stake.staker, mem_pool, currStakes)):
                 return False
@@ -256,7 +292,7 @@ class Chain(CommonChain):
                 elif transaction.receiver==publicKey:
                     bal+=transaction.payload
             if Chain.instance.chain[i].creator==publicKey:
-                bal+=6 #Miner reward
+                bal+=MINER_REWARD #Miner reward
 
         if valid_chain_len<len(self.chain):
             for i in range(valid_chain_len, len(self.chain)):
@@ -301,26 +337,31 @@ class Chain(CommonChain):
                 return i
         return -1
 
-def transaction_exists_in_block_list(blockList:List[Block], transaction_tc:Transaction, idx):
-    for i in range(idx-1):
-        currBlock=blockList[i]
-        for transaction in currBlock.transactions:
-            if(transaction.id==transaction_tc.id): 
-                # We sign the id of the transaction, 
-                # if it was truly a duplicate transaction
-                # meant to reuse a sign then id must be the same
-                # otherwise we'll get the invalid sign error
-                return False
-
 def isvalidChain(blockList:List[Block]):
     EPOCH_TIME = 60  # Add this constant or pass it as a parameter
     
+    if not blockList or any(block is None for block in blockList):
+        return False
+
+    genesis=blockList[0]
+    if genesis.prevHash:
+        print("\nGenesis block must not have a previous hash\n")
+        return False
+    if len(genesis.transactions)!=1:
+        print("\nGenesis block must hold exactly one transaction\n")
+        return False
+    genesis_tx=genesis.transactions[0]
+    if genesis_tx.sender!="Genesis" or genesis_tx.payload!=GENESIS_ALLOCATION:
+        print("\nInvalid genesis allocation\n")
+        return False
+    if genesis.stakers:
+        print("\nGenesis block must not carry stakes\n")
+        return False
+
     for i in range(len(blockList)):
         currBlock=blockList[i]
-        vk=VerifyingKey.from_pem(currBlock.creator)
-        try:
-            vk.verify(currBlock.sign, str(currBlock).encode())
-        except BadSignatureError:
+        if not verify_signature(currBlock.creator, currBlock.sign, str(currBlock)):
+            print("\nInvalid signature on block\n")
             return False
         
         if(i<=0):
@@ -372,9 +413,7 @@ def isvalidChain(blockList:List[Block]):
             print(f"\nTimestamp validation error on block {i}: {e}\n")
             return False
 
-        try:
-            vk.verify(currBlock.vrf_proof, currBlock.seed.encode())
-        except BadSignatureError:
+        if not verify_signature(currBlock.creator, currBlock.vrf_proof, currBlock.seed):
             print("\nInvalid signature on vrf_proof\n")
             return False
         
@@ -383,16 +422,34 @@ def isvalidChain(blockList:List[Block]):
             return False
 
         total_stake=0
+        seen_stakers=set()
+        creator_stake=0
         for stake in currBlock.stakers:
-            vk=VerifyingKey.from_pem(stake.staker)
-            try:
-                vk.verify(stake.sign, str(stake).encode())
-            except BadSignatureError:
+            if not verify_signature(stake.staker, stake.sign, str(stake)):
                 print("\nInvalid signature on stake\n")
                 return False
-            if(stake.amt<=0):
+            if stake.staker in seen_stakers:
+                print("\nDuplicate staker in block\n")
                 return False
+            seen_stakers.add(stake.staker)
+            if not isinstance(stake.amt, (int, float)) or isinstance(stake.amt, bool) or stake.amt<=0:
+                return False
+            if stake.staker==currBlock.creator:
+                creator_stake=stake.amt
             total_stake+=stake.amt
+
+        # A block with no stakes behind it divided by zero here, which took
+        # down whichever task was validating the chain.
+        if total_stake<=0:
+            print("\nBlock declares no stake\n")
+            return False
+
+        # The creator's declared stake has to be the stake it actually
+        # announced and signed for, otherwise it can name any figure it likes
+        # and set its own odds.
+        if currBlock.staked_amt!=creator_stake:
+            print("\nCreator's staked amount does not match its signed stake\n")
+            return False
 
         vrf_output=hashlib.sha256(currBlock.vrf_proof).hexdigest()
         vrf_ouput_int=int(vrf_output, 16)
@@ -403,26 +460,35 @@ def isvalidChain(blockList:List[Block]):
             return False
 
         mem_pool=[]
+        seen_ids=set()
         for transaction in blockList[i].transactions:
+            if transaction.sender=="Genesis":
+                print("\nOnly the genesis block may mint coins\n")
+                return False
+
             if(transaction_exists_in_block_list(blockList, transaction, i)):
                 print("Duplicate transaction(s)")
                 return False
-            
-            sign=transaction.sign
-            vk_tx=VerifyingKey.from_pem(transaction.sender)
 
-            try:
-                vk_tx.verify(sign, str(transaction).encode())
-            except BadSignatureError:
+            if transaction.id in seen_ids:
+                print("Duplicate transaction(s) within block")
+                return False
+            seen_ids.add(transaction.id)
+
+            if not verify_signature(transaction.sender, transaction.sign, str(transaction)):
                 print("\nInvalid signature on transaction\n")
                 return False
 
             amount = 0
             if(transaction.receiver == "deploy" or transaction.receiver == "invoke"):
+                if not isinstance(transaction.payload, list) or not transaction.payload:
+                    return False
                 amount = transaction.payload[-1]
             else:
                 amount = transaction.payload
-            if(calc_balance_block_list(blockList, transaction.sender, i, mem_pool, currBlock.stakers) < amount or amount<=0):
+            if not isinstance(amount, (int, float)) or isinstance(amount, bool):
+                return False
+            if(amount<=0 or calc_balance_block_list(blockList, transaction.sender, i, mem_pool, currBlock.stakers) < amount):
                 return False
             mem_pool.append(transaction)
         
