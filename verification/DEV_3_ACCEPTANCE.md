@@ -1,5 +1,7 @@
 # Developer 3 Acceptance Matrix
 
+> Historical pre-integration results. Fixture-based browser checks below are not live-demo evidence. See [current verification](LIVE_DEMO_VERIFICATION.md) and [LIVE_DEMO.md](../docs/LIVE_DEMO.md). Old fixture screenshots and sample input have been removed; their prior versions remain in Git history.
+
 Run timestamp: **2026-09-30 00:24:18 +05:30**
 
 | Check | Result | Evidence |

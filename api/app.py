@@ -1,11 +1,14 @@
 import time
 import uuid
+import io
+import threading
 
-from flask import Flask, g, has_request_context, jsonify, request
+from flask import Flask, g, has_request_context, jsonify, request, send_file
 from flask_cors import CORS
 from werkzeug.exceptions import BadRequest
 
 from agentguard.artifacts import ArtifactError, ArtifactStore
+from agentguard.auth import OperatorAuth
 from agentguard.config import ApplicationConfig
 from agentguard.identity import fingerprint
 from agentguard.node_service import NodeService, NodeUnavailable, SubmissionRejected
@@ -26,13 +29,28 @@ def api_error(code,message,status,details=None):
 
 def create_app(config:ApplicationConfig,runtime:AgentRuntime,node:NodeService,artifacts:ArtifactStore,
                projections:ProjectionStore,providers:ProviderRegistry,tools:ToolRegistry,
-               room_session:RoomSessionCoordinator) -> Flask:
+               room_session:RoomSessionCoordinator, auth:OperatorAuth) -> Flask:
     app=Flask(__name__); app.config["MAX_CONTENT_LENGTH"]=config.upload_limit_bytes
-    CORS(app,origins=list(config.allowed_origins))
+    CORS(app,origins=list(config.allowed_origins), expose_headers=["X-Request-ID"])
+    command_lock = threading.RLock()
     room_session.add_listener(lambda manifest,_members:setattr(runtime,"room_id",manifest["room_id"]))
 
     @app.before_request
-    def assign_request_id(): g.request_id=str(uuid.uuid4())
+    def assign_request_id():
+        g.request_id=str(uuid.uuid4())
+        if request.method == "OPTIONS" or request.path in ("/health", "/api/auth/login"):
+            return None
+        if request.path.startswith("/api/"):
+            g.token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+            if not auth.valid(g.token):
+                return api_error("AUTH_REQUIRED", "Sign in to this node to continue.", 401)
+            if request.method != "GET":
+                command_lock.acquire()
+                g.command_locked = True
+
+    @app.teardown_request
+    def release_command(_error):
+        if getattr(g, "command_locked", False): command_lock.release()
     @app.after_request
     def expose_request_id(response): response.headers["X-Request-ID"]=g.request_id; return response
 
@@ -54,6 +72,26 @@ def create_app(config:ApplicationConfig,runtime:AgentRuntime,node:NodeService,ar
     @app.get("/health")
     def health(): return jsonify({"status":"ok"})
 
+    @app.post("/api/auth/login")
+    def login():
+        body=request.get_json(force=True)
+        session=auth.login(body.get("access_key") if isinstance(body,dict) else None)
+        if session is None: return api_error("INVALID_ACCESS_KEY", "The node access key is incorrect.", 401)
+        return jsonify({**session,"node_id":config.node_id,"node_name":config.node_name})
+
+    @app.post("/api/auth/logout")
+    def logout():
+        auth.logout(g.token)
+        return "",204
+
+    @app.get("/api/identity")
+    def identity():
+        return jsonify({"node_id":config.node_id,"node_name":config.node_name,
+                        "public_key":runtime.signer.public_key_pem})
+
+    @app.get("/api/room-session")
+    def current_room(): return jsonify({"manifest":room_session.active_manifest})
+
     @app.post("/api/room-session")
     def configure_room(): return jsonify(room_session.configure(request.get_json(force=True)))
 
@@ -69,6 +107,28 @@ def create_app(config:ApplicationConfig,runtime:AgentRuntime,node:NodeService,ar
 
     @app.get("/api/providers")
     def list_providers(): return jsonify({"items":providers.public()})
+    @app.post("/api/prompt-jobs")
+    def prompt_job():
+        body = request.get_json(force=True)
+        runtime.schemas.validate_named("prompt-job-request.schema.json", body)
+        instructions = body.get("instructions")
+        if not isinstance(instructions, str) or not instructions.strip():
+            raise SchemaValidationError("$.instructions", "Enter a task")
+        provider = providers.get(body.get("provider_id"))
+        if provider.kind != "openai_compatible":
+            raise ProviderError("Prompt tasks require a configured AI agent")
+        settings = provider.settings()
+        limits = settings.get("job_limits")
+        runtime.schemas.validate_fragment({"$ref": "policy.schema.json#/$defs/limits"}, limits)
+        inputs = body.get("input_artifact_ids", [])
+        rules = [{"tool_id": tool["tool_id"], "effect": "approval_required" if tool["write_scopes"] else "allow",
+                  "read_artifact_ids": inputs, "write_scopes": tool["write_scopes"], "argument_constraints": {}}
+                 for tool in tools.public()]
+        submission = runtime.create_job({"title": instructions.strip().splitlines()[0][:160],
+            "instructions": instructions.strip(), "provider_id": provider.provider_id, "input_artifact_ids": inputs,
+            "policy": {"rules": rules, "limits": limits}})
+        event = node.get_event(submission.event_id)
+        return jsonify({**submission.to_dict(), "job_id": event["job_id"]}), 202
     @app.get("/api/tools")
     def list_tools(): return jsonify({"items":tools.public()})
     @app.get("/api/peers")
@@ -94,17 +154,37 @@ def create_app(config:ApplicationConfig,runtime:AgentRuntime,node:NodeService,ar
         return jsonify(artifacts.store(runtime.room_id,item.filename or "artifact",item.mimetype or "application/octet-stream",item.stream)),201
 
     @app.post("/api/jobs")
-    def create_job(): return jsonify(runtime.create_job(request.get_json(force=True)).to_dict()),202
+    def create_job():
+        submission=runtime.create_job(request.get_json(force=True))
+        event=node.get_event(submission.event_id)
+        return jsonify({**submission.to_dict(),"job_id":event["job_id"]}),202
     @app.get("/api/jobs")
     def jobs(): return jsonify({"items":projections.list_jobs(runtime.room_id,request.args.get("status"))})
     @app.get("/api/jobs/<job_id>")
     def job(job_id):
         projection = projections.projection(job_id, runtime.room_id)
-        return jsonify({"job":projection,"events":projections.events_for_room(runtime.room_id,job_id)})
+        events=projections.events_for_room(runtime.room_id,job_id)
+        scopes={e["payload"]["action_id"]:tools.get(e["payload"]["tool_id"]).write_scopes(e["payload"]["arguments"])
+                for e in events if e["event_type"]=="action.proposed"}
+        return jsonify({"job":projection,"events":events,"action_scopes":scopes,
+                        "event_states":projections.event_states(job_id)})
+
+    @app.get("/api/jobs/<job_id>/artifacts/<artifact_id>")
+    def download(job_id,artifact_id):
+        projections.projection(job_id,runtime.room_id)
+        ref=artifacts.reference_for_job(runtime.room_id,job_id,artifact_id)
+        content=artifacts.read(runtime.room_id,job_id,artifact_id)
+        return send_file(io.BytesIO(content),mimetype=ref["media_type"],as_attachment=True,download_name=ref["name"])
+
+    @app.post("/api/jobs/<job_id>/manual-actions")
+    def manual_action(job_id): return jsonify(runtime.propose_manual(job_id,request.get_json(force=True)).to_dict()),202
     @app.post("/api/jobs/<job_id>/accept")
     def accept(job_id): return jsonify(runtime.accept(job_id).to_dict()),202
     @app.post("/api/jobs/<job_id>/run")
-    def run(job_id): runtime.run(job_id); return jsonify({"run_id":str(uuid.uuid4()),"job_id":job_id,"state":"started"}),202
+    def run(job_id):
+        runtime.run(job_id)
+        state = projections.projection(job_id, runtime.room_id)["status"]
+        return jsonify({"run_id":str(uuid.uuid4()),"job_id":job_id,"state":state}),202
     @app.post("/api/jobs/<job_id>/complete")
     def complete(job_id): return jsonify(runtime.complete(job_id,request.get_json(force=True)).to_dict()),202
     @app.post("/api/jobs/<job_id>/actions")

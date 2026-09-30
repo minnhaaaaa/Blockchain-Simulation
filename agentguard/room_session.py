@@ -18,6 +18,7 @@ class RoomSessionCoordinator:
         self.advertised_host=advertised_host; self.advertised_port=advertised_port
         self.clock_ms=clock_ms or (lambda:int(time.time()*1000)); self._listeners=[on_verified_room] if on_verified_room else []
         self._active_room_id=None
+        self.active_manifest=None
 
     def add_listener(self,listener): self._listeners.append(listener)
 
@@ -51,6 +52,7 @@ class RoomSessionCoordinator:
                 except SignallingClientError: pass
             raise
         self._active_room_id=manifest["room_id"]
+        self.active_manifest=manifest
         if old_room and old_room != self._active_room_id:
             try: self.client.leave(old_room,self.node_id)
             except SignallingClientError: pass

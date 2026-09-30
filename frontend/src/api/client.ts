@@ -20,6 +20,7 @@ export function normalizeApiOrigin(value: string): string {
   const url = new URL(value.trim());
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error("API URL must use http or https.");
   if (url.username || url.password) throw new Error("API URL must not contain credentials.");
+  if (url.search || url.hash || url.pathname !== "/") throw new Error("Enter only the API origin, without a path, query, or fragment.");
   return url.toString().replace(/\/$/, "");
 }
 
@@ -32,7 +33,7 @@ function isApiErrorBody(value: unknown): value is ApiErrorBody {
 export class ApiClient {
   readonly origin: string;
 
-  constructor(origin: string) {
+  constructor(origin: string, readonly token?: string) {
     this.origin = normalizeApiOrigin(origin);
   }
 
@@ -40,12 +41,14 @@ export class ApiClient {
     let response: Response;
     try {
       const headers = new Headers(init.headers);
+      if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
       if (!(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
       response = await fetch(`${this.origin}${path}`, { ...init, headers });
     } catch (error) {
       throw new ApiError(error instanceof Error ? error.message : "Application API is unreachable.", 0);
     }
     const requestId = response.headers.get("X-Request-ID") ?? undefined;
+    if (response.status === 401 && this.token) window.dispatchEvent(new CustomEvent("agentguard:session-expired", { detail: this.token }));
     if (response.status === 204) return undefined as T;
     const text = await response.text();
     let body: unknown;
@@ -70,5 +73,11 @@ export class ApiClient {
     const init: RequestInit = { method: "POST", body: form };
     if (signal) init.signal = signal;
     return this.request<T>(path, init);
+  }
+
+  async download(path: string): Promise<Blob> {
+    const response = await fetch(`${this.origin}${path}`, { headers: this.token ? { Authorization: `Bearer ${this.token}` } : {} });
+    if (!response.ok) throw new ApiError("This artifact is unavailable on this node. Download it from the node that executed the action.", response.status);
+    return response.blob();
   }
 }

@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agentguard.artifacts import ArtifactStore
+from agentguard.auth import OperatorAuth
 from agentguard.config import ApplicationConfig, ConfigError, _positive_int
 from agentguard.policy import PolicyEvaluator
 from agentguard.projection import ProjectionStore
-from agentguard.providers import ManualProvider, ProviderRegistry
+from agentguard.providers import ManualProvider, OpenAICompatibleProvider, ProviderRegistry
 from agentguard.room_session import RoomSessionCoordinator
 from agentguard.schema_validation import SchemaValidator
 from agentguard.tools import default_registry
@@ -75,6 +76,9 @@ def compose(config: dict) -> ComposedApplication:
     node = _section(config, "node")
     agent = _section(config, "agent")
     discovery = _section(config, "signalling")
+    auth_config = _section(config, "auth")
+    auth = OperatorAuth(application.data_root / application.node_id / "operator.key",
+                        _positive_int(auth_config, "session_ttl_seconds"))
     schemas = SchemaValidator(Path(__file__).resolve().parents[1] / "contracts" / "schemas")
     if "stake_amount" in node and node["stake_amount"] is not None:
         _positive_int(node, "stake_amount")
@@ -92,7 +96,8 @@ def compose(config: dict) -> ComposedApplication:
         data_path = application.data_root / application.node_id
         artifacts = ArtifactStore(data_path / "artifacts", application.upload_limit_bytes)
         projections = ProjectionStore(data_path / "projection.sqlite3")
-        tools = default_registry(_positive_int(agent, "max_csv_rows"), _positive_int(agent, "max_query_rows"))
+        tools = default_registry(max_csv_rows=_positive_int(agent, "max_csv_rows"),
+                                 max_query_rows=_positive_int(agent, "max_query_rows"))
         policy = PolicyEvaluator(schemas, _positive_int(agent, "max_schema_nodes"), _positive_int(agent, "max_schema_depth"))
         configured_providers = config.get("providers")
         if not isinstance(configured_providers, list):
@@ -100,12 +105,17 @@ def compose(config: dict) -> ComposedApplication:
         providers = []
         provider_ids = set()
         for item in configured_providers:
-            if not isinstance(item, dict) or item.get("kind") != "manual" or not item.get("provider_id") or not item.get("label"):
-                raise ConfigError("each configured provider needs kind=manual, provider_id, and label")
+            if not isinstance(item, dict) or item.get("kind") not in ("manual", "openai_compatible") or not item.get("provider_id") or not item.get("label"):
+                raise ConfigError("each configured provider needs a supported kind, provider_id, and label")
             if item["provider_id"] in provider_ids:
                 raise ConfigError("provider_id values must be unique")
             provider_ids.add(item["provider_id"])
-            providers.append(ManualProvider(item["provider_id"], item["label"]))
+            if item["kind"] == "manual":
+                providers.append(ManualProvider(item["provider_id"], item["label"]))
+            else:
+                if not isinstance(item.get("config_path"), str) or not item["config_path"]:
+                    raise ConfigError("OpenAI-compatible provider requires config_path")
+                providers.append(OpenAICompatibleProvider(item["provider_id"], item["label"], item["config_path"]))
         registry = ProviderRegistry(providers)
         client = SignallingClient(application.signalling_url, _positive_int(discovery, "timeout_seconds"))
         session = RoomSessionCoordinator(
@@ -115,7 +125,7 @@ def compose(config: dict) -> ComposedApplication:
         )
         runtime = AgentRuntime(application.room_id, data_path / "work", signer, node_runtime.service,
                                schemas, artifacts, policy, tools, registry, projections)
-        app = create_app(application, runtime, node_runtime.service, artifacts, projections, registry, tools, session)
+        app = create_app(application, runtime, node_runtime.service, artifacts, projections, registry, tools, session, auth)
         session.add_listener(lambda manifest, _members: runtime.rebuild_from_node(manifest["room_id"]))
         membership = MembershipLoop(client, node_runtime, application.node_id,
                                     _positive_int(discovery, "refresh_interval_ms"))

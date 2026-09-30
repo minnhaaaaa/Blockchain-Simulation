@@ -1,5 +1,11 @@
-# Blockchain App
-A terminal blockchain simulation and an AgentGuard node/API backend in Python.
+# Certa
+A live, policy-controlled execution workspace backed by a room-discovered Proof-of-Stake simulation, Python APIs, and React.
+
+Formerly AgentGuard. Internal module names and signed protocol identifiers remain unchanged for compatibility.
+
+Start with the [live demo runbook](docs/LIVE_DEMO.md). It covers installation, operator configuration, real sign-in, uploads, approvals, tool execution, downloads, and multi-node verification. There are no seeded jobs or dashboard records.
+
+For prompt-first AI tasks, fill the server-only `agent-provider.local.json` using [the example](agent-provider.example.json). Supply your OpenAI-compatible base URL, tool-capable model ID and API key. Without these values the agent is explicitly unavailable; Advanced setup still supports manual actions. The [runbook](docs/LIVE_DEMO.md#connect-your-ai-agent) explains permissions and which data is sent to the model.
 
 ## AgentGuard Lite implementation package
 
@@ -35,10 +41,11 @@ Machine-readable contracts live in [`contracts/`](contracts/). This planning pac
 cd frontend
 npm ci
 npm run check
-npm run demo
+npm run demo -- --configure .demo-state/operator-profile.json
+npm run demo -- --config .demo-state/operator-profile.json
 ```
 
-`npm run demo` allocates runtime ports and identities, starts signalling, three nodes/APIs, and Vite, then prints the operator-entered room values. See the [Developer 3 runbook](docs/DEV_3_IMPLEMENTATION.md) and [acceptance results](verification/DEV_3_ACCEPTANCE.md).
+The launcher asks for operational settings once, then starts the configured number of real nodes, signalling, authenticated APIs, and Vite. Ports, identities, room ID, and credentials are generated; settings and genesis allocations come from your profile. See the [live demo runbook](docs/LIVE_DEMO.md).
 
 ## Contents
 - [Theory](#theory)
@@ -213,7 +220,7 @@ python -m api --config <path-to-node-config.json>
 python -m pytest -q tests
 ```
 
-Each signed genesis allocation must include `public_key`, `amount`, and reserved validator `stake`; set `stake` to zero for observers. The React dashboard has not been merged yet.
+Each signed genesis allocation includes `public_key`, `amount`, and reserved validator `stake`; set `stake` to zero for observers. Node configuration now also requires `auth.session_ttl_seconds`; all node API calls except login require a Bearer session. The React dashboard uses these authenticated APIs.
 ### Terminal App
 Start terminal app
 ```bash

@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 from agentguard.artifacts import ArtifactStore
+from agentguard.auth import OperatorAuth
 from agentguard.config import ApplicationConfig
 from agentguard.identity import EcdsaSigner
 from agentguard.policy import PolicyEvaluator
@@ -32,7 +33,10 @@ class RuntimeApiTests(unittest.TestCase):
         registry=RoomRegistry(root/"rooms.sqlite3",1000,self.schemas,lambda:1000)
         session=RoomSessionCoordinator(RegistryClient(registry),self.schemas,self.signer,self.node_id,"node","127.0.0.1",9000,lambda:1000)
         config=ApplicationConfig("127.0.0.1",8000,root,self.room,self.node_id,"node","127.0.0.1",9000,"http://signal",100000,("http://ui",))
-        self.client=create_app(config,self.runtime,self.node,self.artifacts,self.projections,self.providers,self.tools,session).test_client()
+        auth=OperatorAuth(root/"operator.key",3600)
+        self.client=create_app(config,self.runtime,self.node,self.artifacts,self.projections,self.providers,self.tools,session,auth).test_client()
+        token=self.client.post("/api/auth/login",json={"access_key":(root/"operator.key").read_text()}).get_json()["token"]
+        self.client.environ_base["HTTP_AUTHORIZATION"]=f"Bearer {token}"
     def tearDown(self): self.temp.cleanup()
     def create_job(self,effect="allow"):
         upload=self.client.post("/api/artifacts",data={"file":(io.BytesIO(b"hello"),"input.txt")},content_type="multipart/form-data")

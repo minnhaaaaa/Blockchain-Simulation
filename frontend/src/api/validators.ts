@@ -10,6 +10,7 @@ import receiptSchema from "../../../contracts/schemas/receipt.schema.json";
 import resultSchema from "../../../contracts/schemas/job-result.schema.json";
 import violationSchema from "../../../contracts/schemas/security-violation.schema.json";
 import eventSchema from "../../../contracts/schemas/agent-event.schema.json";
+import createJobSchema from "../../../contracts/schemas/job-create-request.schema.json";
 import type { AgentEvent, RoomManifest } from "../types/api";
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -21,7 +22,7 @@ const schemas = [
   ["job-acceptance.schema.json", acceptanceSchema], ["action.schema.json", actionSchema],
   ["decision.schema.json", decisionSchema], ["receipt.schema.json", receiptSchema],
   ["job-result.schema.json", resultSchema], ["security-violation.schema.json", violationSchema],
-  ["agent-event.schema.json", eventSchema]
+  ["agent-event.schema.json", eventSchema], ["job-create-request.schema.json", createJobSchema]
 ] as const;
 for (const [name, schema] of schemas) ajv.addSchema({ ...schema, $id: `${schemaBase}${name}` });
 
@@ -42,6 +43,8 @@ function assertValid<T>(validator: ValidateFunction<T>, value: unknown): asserts
 }
 
 export function validateRoomManifest(value: unknown): RoomManifest { assertValid(manifestValidator, value); return value; }
+const policyInputValidator = ajv.compile({ ...createJobSchema.properties.policy, $id: `${schemaBase}policy-input.json` });
+export function validatePolicy(value: unknown) { assertValid(policyInputValidator, value); return value; }
 export function validateAgentEvents(value: unknown): AgentEvent[] {
   if (!Array.isArray(value)) throw new IncompatibleResponseError(["/events must be an array"]);
   for (const item of value) assertValid(eventValidator, item);

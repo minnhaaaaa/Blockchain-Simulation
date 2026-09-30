@@ -4,6 +4,108 @@
  */
 
 export interface paths {
+    "/api/prompt-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create a signed task with configured server limits. Registered read tools may read attached inputs; every declared write scope requires owner approval. Run separately through the job run endpoint. */
+        post: operations["createPromptJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getIdentity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/manual-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["proposeManualAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: components["parameters"]["JobId"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        get: operations["downloadArtifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -133,7 +235,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["getRoomSession"];
         put?: never;
         post: operations["configureRoomSession"];
         delete?: never;
@@ -401,6 +503,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        OperatorSession: {
+            token: string;
+            expires_at_ms: number;
+            node_id: string;
+            node_name: string;
+        };
         Status: {
             room_id: components["schemas"]["roomId"];
             node_id: components["schemas"]["uuid"];
@@ -430,6 +538,7 @@ export interface components {
             description: string;
             version: string;
             argument_schema: Record<string, never>;
+            write_scopes: string[];
             output_kinds: ("none" | "text" | "json" | "table" | "artifact")[];
         };
         Peer: {
@@ -466,6 +575,7 @@ export interface components {
             amount: number;
         };
         Submission: {
+            job_id?: components["schemas"]["uuid"];
             submission_id: components["schemas"]["uuid"];
             event_id: components["schemas"]["uuid"];
             /** @enum {unknown} */
@@ -505,6 +615,32 @@ export interface components {
             /** @enum {unknown} */
             finality: "pending" | "included" | "finalized" | "rejected";
         };
+        /** Format: uuid */
+        uuid: string;
+        /** Prompt-first task */
+        "prompt-job-request.schema": {
+            instructions: string;
+            provider_id: string;
+            input_artifact_ids?: components["schemas"]["uuid"][];
+        };
+        sha256: string;
+        apiError: {
+            code: string;
+            message: string;
+            request_id: components["schemas"]["uuid"];
+            details?: Record<string, never>;
+        };
+        toolId: string;
+        /** Operator action proposal */
+        "manual-action-request.schema": {
+            tool_id: components["schemas"]["toolId"];
+            arguments: {
+                [key: string]: unknown;
+            };
+            input_artifact_ids: components["schemas"]["uuid"][];
+            /** @enum {unknown} */
+            expected_output_kind: "none" | "text" | "json" | "table" | "artifact";
+        };
         publicKeyPem: string;
         roomId: string;
         consensusParameters: {
@@ -515,8 +651,6 @@ export interface components {
             block_reward: number;
             minimum_stake: number;
         };
-        /** Format: uuid */
-        uuid: string;
         timestampMs: number;
         genesisAllocation: {
             public_key: components["schemas"]["publicKeyPem"];
@@ -561,13 +695,6 @@ export interface components {
                 };
             };
         };
-        apiError: {
-            code: string;
-            message: string;
-            request_id: components["schemas"]["uuid"];
-            details?: Record<string, never>;
-        };
-        sha256: string;
         /** Live room member */
         "room-member.schema": {
             /** @constant */
@@ -600,7 +727,6 @@ export interface components {
             consensus_parameters?: components["schemas"]["consensusParameters"];
             genesis_allocations?: components["schemas"]["genesisAllocation"][];
         } & (unknown & unknown);
-        toolId: string;
         artifactRef: {
             artifact_id: components["schemas"]["uuid"];
             name: string;
@@ -860,6 +986,159 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    createPromptJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["prompt-job-request.schema"];
+            };
+        };
+        responses: {
+            /** @description Task created; response includes job_id */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Submission"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    access_key: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Authenticated operator session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorSession"];
+                };
+            };
+            /** @description Invalid node access key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public node identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        node_id: string;
+                        node_name: string;
+                        public_key: string;
+                    };
+                };
+            };
+        };
+    };
+    proposeManualAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["manual-action-request.schema"];
+            };
+        };
+        responses: {
+            /** @description Node constructed and signed the operator proposal */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Submission"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    downloadArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: components["parameters"]["JobId"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Integrity-checked private artifact bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -1049,6 +1328,28 @@ export interface operations {
                 };
             };
             503: components["responses"]["Unavailable"];
+        };
+    };
+    getRoomSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The manifest actually applied to this node, or null before joining */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        manifest: components["schemas"]["room-manifest.schema"] | null;
+                    };
+                };
+            };
         };
     };
     configureRoomSession: {
@@ -1314,6 +1615,12 @@ export interface operations {
                 content: {
                     "application/json": {
                         job: components["schemas"]["JobProjection"];
+                        action_scopes: {
+                            [key: string]: string[];
+                        };
+                        event_states: {
+                            [key: string]: string;
+                        };
                         events: components["schemas"]["agent-event.schema"][];
                     };
                 };
@@ -1355,7 +1662,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Configured worker run started */
+            /** @description Worker run returned; state is the current job projection, not a fabricated running status */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -1364,8 +1671,8 @@ export interface operations {
                     "application/json": {
                         run_id: components["schemas"]["uuid"];
                         job_id: components["schemas"]["uuid"];
-                        /** @constant */
-                        state: "started";
+                        /** @enum {unknown} */
+                        state: "accepted" | "running" | "waiting_approval" | "completed";
                     };
                 };
             };

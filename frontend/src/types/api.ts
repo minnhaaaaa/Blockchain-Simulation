@@ -17,6 +17,7 @@ export type RoomSessionRequest = components["schemas"]["room-session-request.sch
 export type JobCreateRequest = components["schemas"]["job-create-request.schema"];
 export type ActionDecisionRequest = components["schemas"]["action-decision-request.schema"];
 export type Action = components["schemas"]["action.schema"];
+export type Job = components["schemas"]["job.schema"];
 export type AgentEvent = components["schemas"]["agent-event.schema"];
 export type Decision = components["schemas"]["decision.schema"];
 export type Receipt = components["schemas"]["receipt.schema"];
@@ -30,3 +31,6 @@ export type StakeSnapshot = operations["listStakes"]["responses"][200]["content"
 export type BlockDetail = operations["getBlock"]["responses"][200]["content"]["application/json"];
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export type ManualActionRequest = components["schemas"]["manual-action-request.schema"];
+export type OperatorSession = components["schemas"]["OperatorSession"];
+export type JobCompleteRequest = components["schemas"]["job-complete-request.schema"];

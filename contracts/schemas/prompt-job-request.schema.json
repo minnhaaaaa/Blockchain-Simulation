@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:prompt-job-request:1",
+  "title": "Prompt-first task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["instructions", "provider_id"],
+  "properties": {
+    "instructions": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "provider_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "input_artifact_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "./common.schema.json#/$defs/artifactId"}}
+  }
+}

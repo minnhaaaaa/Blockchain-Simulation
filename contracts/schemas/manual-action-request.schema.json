@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:schema:manual-action-request:1",
+  "title": "Operator action proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool_id", "arguments", "input_artifact_ids", "expected_output_kind"],
+  "properties": {
+    "tool_id": {"$ref": "./common.schema.json#/$defs/toolId"},
+    "arguments": {"type": "object", "additionalProperties": true},
+    "input_artifact_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "./common.schema.json#/$defs/artifactId"}},
+    "expected_output_kind": {"enum": ["none", "text", "json", "table", "artifact"]}
+  }
+}

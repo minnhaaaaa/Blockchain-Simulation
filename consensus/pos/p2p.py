@@ -108,6 +108,7 @@ class Peer:
         self.loop = None
         self.server = None
         self.ready = threading.Event()
+        self.block_tasks = set()
         # Sockets that proved they belong to this room (room_hello matched the
         # manifest genesis) and the public key each presented.
         self.admitted = set()
@@ -386,8 +387,10 @@ class Peer:
                 transaction.sign=base64.b64decode(transaction_dict["sign"])
             transactions.append(transaction)
         
-        has_events=bool(block_dict.get("events"))
-        if(not(new_block_id and new_block_ts and (transactions or has_events))): # Genesis block doesn't have prevHash, it's an empty string
+        # Empty signed successor blocks are necessary to finalize the last
+        # work in a quiet room. Signature, stake and linkage are checked by
+        # the receiving/replay path; only genesis needs allocations here.
+        if not new_block_id or not new_block_ts or (not new_block_prevHash and not transactions):
             return None
         
         newBlock=Block(new_block_prevHash, transactions, new_block_ts, new_block_id)   
@@ -939,7 +942,7 @@ class Peer:
                 return
 
             creator_pem = new_block_dict["creator"]
-            print(f"\n{new_block_dict}\n")
+            # Do not dump complete jobs, inputs and signatures to the console.
             try:
                 epoch_seed = self.chain.epoch_seed()
                 if not core.vrf_verify_proof(creator_pem, vrf_proof, epoch_seed):
@@ -1758,6 +1761,17 @@ class Peer:
                 self.staked_amt=0
                 self.reset_stake_snapshot()
 
+    def needs_finality_block(self):
+        """Advance real consensus until the latest work reaches configured depth."""
+        if not self.manifest or not self.chain:
+            return False
+        head = len(self.chain.chain) - 1
+        for height in range(head, max(0, head-self.params.finality_depth), -1):
+            block = self.chain.chain[height]
+            if block.events or block.transactions:
+                return True
+        return False
+
     def try_produce_block(self):
         """
             Run the stake lottery for the current epoch and, on a win, build,
@@ -1769,7 +1783,7 @@ class Peer:
             return None
         pending_transactions=[t for t in self.mem_pool if not self.chain.transaction_exists_in_chain(t)]
         pending_events=list(self.event_pool)
-        if not pending_transactions and not pending_events:
+        if not pending_transactions and not pending_events and not self.needs_finality_block():
             return None
 
         # Consecutive blocks must respect the room's minimum spacing or every
@@ -1840,7 +1854,9 @@ class Peer:
         self.staked_amt=amt
         time_left=max(0.0, self.epoch_time-time_since.total_seconds())
         print(f"Creating block in {time_left:.1f} seconds")
-        asyncio.create_task(self.create_blocks(time_left))
+        task = asyncio.create_task(self.create_blocks(time_left))
+        self.block_tasks.add(task)
+        task.add_done_callback(self.block_tasks.discard)
         return True
 
     async def auto_stake_loop(self, amt: int):
@@ -1853,7 +1869,7 @@ class Peer:
             await asyncio.sleep(max(0.05, self.epoch_time/6))
             if self.chain is None or self.staked_amt>0:
                 continue
-            if self.mem_pool or self.event_pool:
+            if self.mem_pool or self.event_pool or self.needs_finality_block():
                 try:
                     await self.stake_and_schedule(amt)
                 except Exception as e:
@@ -1987,8 +2003,10 @@ class Peer:
             else:
                 await self.stop_event.wait()
         finally:
-            for task in tasks:
+            pending_tasks = [*tasks, *self.block_tasks]
+            for task in pending_tasks:
                 task.cancel()
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
             self.server.close()
             await self.server.wait_closed()
 

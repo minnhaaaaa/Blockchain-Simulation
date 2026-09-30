@@ -2,6 +2,7 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
+from agentguard.database import connect
 
 
 class ProjectionError(ValueError): pass
@@ -16,7 +17,7 @@ class ProjectionStore:
               event_type TEXT NOT NULL,event_json TEXT NOT NULL,ledger_state TEXT NOT NULL,
               UNIQUE(job_id,sequence));""")
     def _connect(self):
-        db=sqlite3.connect(self.database); db.row_factory=sqlite3.Row; return db
+        db=connect(self.database); db.row_factory=sqlite3.Row; return db
     def contains(self,event_id):
         with self._connect() as db: return db.execute("SELECT 1 FROM events WHERE event_id=?",(event_id,)).fetchone() is not None
     def remove(self,event_id):
@@ -47,6 +48,7 @@ class ProjectionStore:
         with self._connect() as db: rows=db.execute("SELECT event_json,ledger_state FROM events WHERE job_id=? ORDER BY sequence",(job_id,)).fetchall()
         return [(json.loads(row["event_json"]),row["ledger_state"]) for row in rows]
     def events(self,job_id): return [event for event,_ in self._records(job_id)]
+    def event_states(self,job_id): return {event["event_id"]:state for event,state in self._records(job_id)}
     def events_for_room(self,room_id,job_id):
         records=self._records(job_id)
         if records and any(event["room_id"] != room_id for event,_ in records):

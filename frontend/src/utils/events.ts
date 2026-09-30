@@ -8,7 +8,7 @@ export function eventRailState(event: AgentEvent): RailState {
   if (event.event_type === "action.denied" || event.event_type === "security.violation") return "denied";
   if (event.event_type === "action.rejected") return "rejected";
   if (event.event_type === "job.failed") return "failed";
-  if (event.event_type === "job.completed") return "finalized";
+  if (event.event_type === "job.completed") return "allowed";
   if (event.event_type === "job.created" || event.event_type === "job.accepted" || event.event_type === "action.proposed") return "submitted";
   return "neutral";
 }

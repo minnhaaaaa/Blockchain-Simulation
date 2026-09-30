@@ -38,7 +38,13 @@ export function useConfigureRoom() { const { client } = useRequiredApi(); return
 export function useUploadArtifact() { const { client } = useRequiredApi(); return useMutation({ mutationFn: (file: File) => client.upload<ArtifactRef>("/api/artifacts", file) }); }
 export function useCreateJob(roomId: string) { const { client } = useRequiredApi(); const invalidate = useInvalidateRoom(roomId); return useMutation({ mutationFn: (body: JobCreateRequest) => client.post<Submission>("/api/jobs", body), onSuccess: invalidate }); }
 export function useAcceptJob(roomId: string, jobId: string) { const { client, apiOrigin } = useRequiredApi(); const qc = useQueryClient(); return useMutation({ mutationFn: () => client.post<Submission>(`/api/jobs/${encodeURIComponent(jobId)}/accept`), onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.job(apiOrigin, roomId, jobId) }) }); }
-export function useRunJob(roomId: string, jobId: string) { const { client, apiOrigin } = useRequiredApi(); const qc = useQueryClient(); return useMutation({ mutationFn: () => client.post<{run_id:string;job_id:string;state:"started"}>(`/api/jobs/${encodeURIComponent(jobId)}/run`), onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.job(apiOrigin, roomId, jobId) }) }); }
+export function useRunJob(roomId: string, jobId: string) { const { client, apiOrigin } = useRequiredApi(); const qc = useQueryClient(); return useMutation({ mutationFn: () => client.post<{run_id:string;job_id:string;state:JobProjection["status"]}>(`/api/jobs/${encodeURIComponent(jobId)}/run`), onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.job(apiOrigin, roomId, jobId) }) }); }
 export function useDecideAction(roomId: string, jobId: string, actionId: string) { const { client, apiOrigin } = useRequiredApi(); const qc = useQueryClient(); return useMutation({ mutationFn: (body: ActionDecisionRequest) => client.post<Submission>(`/api/jobs/${encodeURIComponent(jobId)}/actions/${encodeURIComponent(actionId)}/decision`, body), onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.job(apiOrigin, roomId, jobId) }) }); }
 
 export type ValidatedJobDetail = Omit<JobDetail, "events"> & { events: AgentEvent[] };
+
+export function useJobCommand<T>(roomId: string, jobId: string, command: string) {
+  const { client, apiOrigin } = useRequiredApi(); const qc = useQueryClient();
+  return useMutation({ mutationFn: (body: T) => client.post<Submission>(`/api/jobs/${encodeURIComponent(jobId)}/${command}`, body),
+    onSuccess: async () => { await Promise.all([qc.invalidateQueries({ queryKey: queryKeys.job(apiOrigin, roomId, jobId) }), qc.invalidateQueries({ queryKey: ["jobs", apiOrigin, roomId] })]); } });
+}

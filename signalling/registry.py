@@ -7,6 +7,7 @@ from typing import Callable
 
 from agentguard.canonical import decode_signature, signing_bytes
 from agentguard.identity import verify
+from agentguard.database import connect
 from agentguard.schema_validation import SchemaValidator
 
 
@@ -27,7 +28,7 @@ class RoomRegistry:
         self._initialize()
 
     def _connect(self):
-        connection = sqlite3.connect(self.database_path)
+        connection = connect(self.database_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         return connection

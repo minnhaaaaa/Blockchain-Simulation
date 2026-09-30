@@ -29,3 +29,5 @@ frontend/dist/
 frontend/playwright-report/
 frontend/test-results/
 .demo-state/
+.env
+agent-provider.local.json

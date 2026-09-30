@@ -13,6 +13,12 @@ Neither origin is compiled into the React bundle. A startup-supplied config docu
 
 ## 2. HTTP rules
 
+### Node operator sessions
+
+Node configuration requires `auth.session_ttl_seconds`. Startup creates a random private `operator.key` under the node data directory if absent. `POST /api/auth/login` takes `{access_key}` and returns `{token, expires_at_ms, node_id, node_name}`. Every other node `/api/*` endpoint requires `Authorization: Bearer <token>`; logout revokes that token. `/health` remains public. This is node-level authorization, not per-user tenancy. Signalling membership continues to use signed membership payloads instead of node operator tokens.
+
+`GET /api/identity` returns public node identity; `GET /api/room-session` returns the currently applied manifest or null. `POST /api/jobs/{job_id}/manual-actions` accepts only tool arguments, input artifact IDs, tool ID and output kind; the server derives the signing identity, action sequence and timestamp. Job creation returns `job_id` in addition to the submission. Job detail includes `event_states` and tool-derived `action_scopes`. `GET /api/jobs/{job_id}/artifacts/{artifact_id}` serves integrity-checked local bytes, with room/job authorization. Successful executions persist their actual return value as an additional downloadable JSON artifact.
+
 - JSON responses use `application/json`; uploads use `multipart/form-data`.
 - Resource creation returns `201`; asynchronous ledger commands return `202`; reads/synchronous commands return `200`; successful empty mutations return `204`.
 - All errors use `common.schema.json#/$defs/apiError` and include a runtime-generated `request_id`.
@@ -60,6 +66,14 @@ Command responses return a submission object containing runtime-generated `submi
 `POST /api/jobs/{job_id}/accept` identifies the authenticated/runtime worker and submits a `job.accepted` event. `POST .../run` asks the configured provider to propose the next action; it does not bypass policy or directly execute a tool.
 
 `POST .../actions` supports a manual or provider-produced proposal. The gateway records the proposal, evaluates policy, records the decision, and executes only when allowed/approved. `POST .../decision` accepts only `approved` or `rejected` from the job owner for a currently pending action.
+
+### Prompt-first tasks and compatible agents
+
+`POST /api/prompt-jobs` accepts `instructions`, `provider_id`, and optional `input_artifact_ids` per `prompt-job-request.schema.json`. Only a configured `openai_compatible` provider is accepted. The server constructs rules from the current tool registry (attached-file reads allowed, declared writes approval-required) and signs the configured `job_limits`. The response includes `job_id`.
+
+`POST /api/jobs/{job_id}/run` on an AI task accepts it on the local node if still submitted, then runs a bounded synchronous model/tool loop. It stops at human approval, completion, or an explicit error. Reinvoke after approval/rejection to continue. The response `state` is the actual current job projection (`accepted`, `running`, `waiting_approval` or `completed`), replacing the former fixed `started` string. Signed events establish the outcome and finality remains separate. A completed task cannot run again. Manual-provider execution behavior is unchanged.
+
+Provider public fields remain ID, label, kind and state. `ready` means the server-only configuration is valid, not that the upstream API has passed a health check. Provider secrets and raw upstream errors are never exposed by these endpoints. See the live-demo runbook for privacy, timeout and concurrency limitations.
 
 `POST /api/jobs/{job_id}/complete` submits a signed terminal result only after every proposed action is completed, denied, or rejected and no approval is pending. Every referenced output artifact must belong to that job.
 

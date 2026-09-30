@@ -1,0 +1,13 @@
+{
+  "base_url": "",
+  "model": "",
+  "api_key": "",
+  "timeout_seconds": 60,
+  "max_context_bytes": 200000,
+  "max_response_bytes": 1000000,
+  "job_limits": {
+    "max_actions": 12,
+    "max_runtime_ms_per_action": 30000,
+    "max_output_bytes_per_action": 100000
+  }
+}

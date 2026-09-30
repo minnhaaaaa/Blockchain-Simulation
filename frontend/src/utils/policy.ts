@@ -1,4 +1,5 @@
 import type { JobCreateRequest, PolicyRuleInput } from "../types/api";
+import { validatePolicy } from "../api/validators";
 
 export type RuleDraft = {
   tool_id: string;
@@ -28,6 +29,7 @@ export function serializePolicyDraft(draft: PolicyDraft): JobCreateRequest["poli
   if (draft.rawMode) {
     const parsed: unknown = JSON.parse(draft.rawPolicy);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Policy JSON must be an object.");
+    validatePolicy(parsed);
     return parsed as JobCreateRequest["policy"];
   }
 

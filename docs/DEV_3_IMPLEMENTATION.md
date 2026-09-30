@@ -1,5 +1,7 @@
 # Developer 3 Implementation and Demo Runbook
 
+> Historical handoff, superseded by [the current live-demo runbook](LIVE_DEMO.md). The redesigned frontend now has real operator authentication and a working manual action composer; the launcher requires an operator profile. Do not use the old launch or fixture-demo instructions below.
+
 ## Delivered
 
 - React 19.3, TypeScript, and Vite application under `frontend/`.

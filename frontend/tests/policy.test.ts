@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { serializePolicyDraft } from "../src/utils/policy";
 
 describe("policy serialization", () => {
+  it("validates raw JSON independently of empty builder fields", () => {
+    const policy = { rules: [{ tool_id: "report.write", effect: "deny", read_artifact_ids: [], write_scopes: [], argument_constraints: {} }], limits: { max_actions: 1, max_runtime_ms_per_action: 10, max_output_bytes_per_action: 10 } };
+    const draft = { rules: [], maxActions: "", maxRuntime: "", maxOutput: "", expiry: "", rawMode: true, rawPolicy: JSON.stringify(policy) };
+    expect(serializePolicyDraft(draft)).toEqual(policy);
+    expect(() => serializePolicyDraft({ ...draft, rawPolicy: "{}" })).toThrow();
+    expect(() => serializePolicyDraft({ ...draft, rawPolicy: JSON.stringify({ ...policy, limits: { ...policy.limits, max_actions: 0 } }) })).toThrow();
+  });
   it("serializes only operator-entered rules and limits", () => {
     const result = serializePolicyDraft({
       rules: [{ tool_id: "sha256", effect: "approval_required", read_artifact_ids: ["artifact-1"], write_scopes: "reports, audit", argument_constraints: '{"type":"object"}' }],

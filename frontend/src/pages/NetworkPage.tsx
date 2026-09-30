@@ -1,10 +1,27 @@
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Server } from "lucide-react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { usePeers, useStakes } from "../api/hooks";
+import { usePeers, useStatus } from "../api/hooks";
 import { PageHeader } from "../components/AppShell";
 import { Copyable } from "../components/Copyable";
-import { EmptyState, ErrorState, Skeleton } from "../components/States";
+import { ErrorState, Skeleton } from "../components/States";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatTimestamp } from "../utils/format";
+import { NetworkOrbit } from "../components/NetworkOrbit";
 
-export function NetworkPage(){const roomId=useParams().roomId??"";const peers=usePeers(roomId);const stakes=useStakes(roomId);const refresh=<button className="button button-secondary" onClick={()=>void Promise.all([peers.refetch(),stakes.refetch()])}><RefreshCw/>Refresh</button>;return <div className="page"><PageHeader eyebrow="Authenticated topology" title="Network" detail="Discovery and direct connection are reported separately." action={refresh}/><section className="surface"><header className="section-heading"><div><h2>Peers</h2><p>Live discovery records and P2P connection state.</p></div></header>{peers.isPending?<Skeleton/>:peers.error?<ErrorState error={peers.error}/>:!peers.data?.length?<EmptyState title="No peers discovered" detail="This node is currently the only live member returned for the room."/>:<div className="table-wrap"><table><thead><tr><th>Node</th><th>Fingerprint</th><th>Discovery</th><th>Connection</th><th>Endpoint</th><th>Last heartbeat</th></tr></thead><tbody>{peers.data.map(peer=><tr key={peer.node_id}><td><strong>{peer.name}</strong><Copyable value={peer.node_id} label="node ID"/></td><td><Copyable value={peer.public_key_fingerprint} label="public key fingerprint"/></td><td><StatusBadge value={peer.discovery_state}/></td><td><StatusBadge value={peer.connection_state}/></td><td className="mono">{peer.advertised_host}:{peer.advertised_port}</td><td>{formatTimestamp(peer.last_seen_ms)}</td></tr>)}</tbody></table></div>}</section><section className="surface"><header className="section-heading"><div><h2>Authenticated stake</h2><p>Deterministically ordered snapshot committed by the room manifest.</p></div></header>{stakes.isPending?<Skeleton/>:stakes.error?<ErrorState error={stakes.error}/>:<><dl className="metric-row"><div><dt>Total stake</dt><dd>{stakes.data.total_stake.toLocaleString()}</dd></div><div><dt>Epoch seed</dt><dd><Copyable value={stakes.data.epoch_seed} label="epoch seed"/></dd></div><div><dt>Latest proposer</dt><dd>{stakes.data.latest_proposer_fingerprint?<Copyable value={stakes.data.latest_proposer_fingerprint} label="proposer"/>:"None"}</dd></div></dl><div className="table-wrap"><table><thead><tr><th>Order</th><th>Staker fingerprint</th><th>Amount</th></tr></thead><tbody>{stakes.data.items.map((stake,index)=><tr key={stake.staker_fingerprint}><td>{index+1}</td><td><Copyable value={stake.staker_fingerprint} label="staker fingerprint" compact={false}/></td><td>{stake.amount.toLocaleString()}</td></tr>)}</tbody></table></div></>}</section></div>}
+export function NetworkPage() {
+  const { roomId = "" } = useParams(); const peers = usePeers(roomId); const status = useStatus();
+  const [selected, setSelected] = useState<string | null>(null);
+  const members = (peers.data ?? []).filter(peer => peer.node_id !== status.data?.node_id && (peer.discovery_state === "discovered" || peer.connection_state === "connected"));
+  const picked = members.find(peer => peer.node_id === selected);
+  // Draw only connections observed by this node, never inferred peer-to-peer edges.
+  return <div className="page"><PageHeader title="Network" action={<button className="button" onClick={() => void peers.refetch()}><RefreshCw size={16}/>Refresh</button>}/>
+    {peers.error && <ErrorState error={peers.error}/>} {status.error && <ErrorState error={status.error}/>}
+    {peers.isPending || status.isPending ? <Skeleton/> : <section className="network-map surface"><div className="section-heading"><span>{members.length + (status.data ? 1 : 0)} participating nodes</span><span className="muted small">Connections seen by {status.data?.node_name ?? "this node"}</span></div>
+      <NetworkOrbit members={members} localName={status.data?.node_name} selected={selected} onSelect={setSelected}/><div className="graph-legend"><span>— Connected</span><span>┄ Discovered, not connected</span></div>
+      {!members.length && !peers.error && <p className="muted">No peers discovered yet. Join another node to this room to see it here.</p>}
+    </section>}
+    <div className="node-list">{members.map(peer => <button className={`node-row ${selected === peer.node_id ? "selected" : ""}`} key={peer.node_id} onClick={() => setSelected(selected === peer.node_id ? null : peer.node_id)} aria-expanded={selected === peer.node_id}><Server size={18}/><strong>{peer.name}</strong><StatusBadge value={peer.connection_state}/></button>)}</div>
+    {picked && <section className="surface"><h2>{picked.name}</h2><dl className="definition-list"><dt>Discovered</dt><dd>{picked.discovery_state}</dd><dt>Last seen</dt><dd>{formatTimestamp(picked.last_seen_ms)}</dd><dt>Endpoint</dt><dd>{picked.advertised_host}:{picked.advertised_port}</dd><dt>Node ID</dt><dd><Copyable value={picked.node_id} label="node ID"/></dd><dt>Identity</dt><dd><Copyable value={picked.public_key_fingerprint} label="public key fingerprint"/></dd></dl></section>}
+  </div>;
+}

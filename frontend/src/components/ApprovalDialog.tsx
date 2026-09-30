@@ -9,7 +9,7 @@ export function ApprovalDialog({ open, toolId, argumentsValue, inputIds, writeSc
       <h2>Review requested action</h2><p>The action will not execute until you decide.</p>
       <dl className="definition-list"><dt>Tool</dt><dd className="mono">{toolId}</dd><dt>Policy reason</dt><dd>{reason}</dd><dt>Inputs</dt><dd>{inputIds.join(", ") || "None"}</dd><dt>Write scope</dt><dd>{writeScopes.join(", ") || "None"}</dd><dt>Arguments</dt><dd><pre>{JSON.stringify(argumentsValue, null, 2)}</pre></dd></dl>
       <label>Decision note <textarea value={decisionReason} onChange={event => setDecisionReason(event.target.value)} maxLength={1000} /></label>
-      <footer><button type="button" className="button button-secondary" disabled={pending} onClick={() => onSubmit({ decision: "rejected", ...(decisionReason ? { reason: decisionReason } : {}) })}>Reject</button><button ref={approveRef} type="button" className="button button-primary" disabled={pending} onClick={() => onSubmit({ decision: "approved", ...(decisionReason ? { reason: decisionReason } : {}) })}>Approve action</button></footer>
+      <footer><button type="button" className="button" onClick={onClose} disabled={pending}>Close</button><button type="button" className="button button-secondary" disabled={pending} onClick={() => onSubmit({ decision: "rejected", ...(decisionReason ? { reason: decisionReason } : {}) })}>Reject</button><button ref={approveRef} type="button" className="button button-primary" disabled={pending} onClick={() => onSubmit({ decision: "approved", ...(decisionReason ? { reason: decisionReason } : {}) })}>Approve action</button></footer>
     </form>
   </dialog>;
 }

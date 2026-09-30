@@ -1,4 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { useApi } from "./api/ApiContext";
+import { LandingPage } from "./pages/LandingPage";
+import { SignInPage } from "./pages/SignInPage";
 import { AppShell, RoomGuard } from "./components/AppShell";
 import { GatewayPage } from "./pages/GatewayPage";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -10,11 +13,14 @@ import { LedgerPage } from "./pages/LedgerPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
-function ConsoleRoute({ children }: { children: React.ReactNode }) { return <AppShell><RoomGuard>{children}</RoomGuard></AppShell>; }
+function AuthGuard({ children }: { children: React.ReactNode }) { const {client}=useApi(); return client ? children : <Navigate to="/sign-in" replace/>; }
+function ConsoleRoute({ children }: { children: React.ReactNode }) { return <AuthGuard><AppShell><RoomGuard>{children}</RoomGuard></AppShell></AuthGuard>; }
 
 export default function App() {
   return <Routes>
-    <Route path="/" element={<GatewayPage />} />
+    <Route path="/" element={<LandingPage />} />
+    <Route path="/sign-in" element={<SignInPage />} />
+    <Route path="/connect" element={<AuthGuard><GatewayPage /></AuthGuard>} />
     <Route path="/r/:roomId/overview" element={<ConsoleRoute><OverviewPage /></ConsoleRoute>} />
     <Route path="/r/:roomId/jobs" element={<ConsoleRoute><JobsPage /></ConsoleRoute>} />
     <Route path="/r/:roomId/jobs/new" element={<ConsoleRoute><NewJobPage /></ConsoleRoute>} />

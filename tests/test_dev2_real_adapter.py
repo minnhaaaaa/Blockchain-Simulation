@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from agentguard.artifacts import ArtifactStore
+from agentguard.auth import OperatorAuth
 from agentguard.config import ApplicationConfig
 from agentguard.policy import PolicyEvaluator
 from agentguard.projection import ProjectionStore
@@ -76,8 +77,11 @@ class RealAdapterRuntimeApiTests(RuntimeApiTests):
                                          "127.0.0.1", self.port, lambda: 1000, on_verified_room=self.node_runtime.on_verified_room)
         config = ApplicationConfig("127.0.0.1", 8000, root, self.room, self.node_id, "node", "127.0.0.1", self.port,
                                    "http://signal", 100000, ("http://ui",))
-        self.app = create_app(config, self.runtime, self.node, self.artifacts, self.projections, self.providers, self.tools, session)
+        auth=OperatorAuth(root/"operator.key",3600)
+        self.app = create_app(config, self.runtime, self.node, self.artifacts, self.projections, self.providers, self.tools, session,auth)
         self.client = self.app.test_client()
+        token=self.client.post("/api/auth/login",json={"access_key":(root/"operator.key").read_text()}).get_json()["token"]
+        self.client.environ_base["HTTP_AUTHORIZATION"]=f"Bearer {token}"
         # a real, verified room: created through the coordinator, applied by the node before it returns
         session.configure({"operation": "create", "room_id": self.room, "protocol_version": "1",
                            "consensus_parameters": {"epoch_ms": 500, "max_clock_skew_ms": 5000, "finality_depth": 2,

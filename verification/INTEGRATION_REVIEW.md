@@ -1,5 +1,7 @@
 # Developer 3 Integration Review
 
+> Historical findings from the original frontend handoff. The live-demo redesign fixes artifact binding, manual action submission, raw policy validation, multi-upload state, authentication, and quiet-room finality. SQLite connections now close explicitly; Linux verification does not constitute a Windows rerun. Follow [the current runbook](../docs/LIVE_DEMO.md), not the old fixture-backed presentation.
+
 ## Exact clean-terminal failure
 
 Command:

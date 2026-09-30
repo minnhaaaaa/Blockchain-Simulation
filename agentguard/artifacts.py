@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import uuid
 from pathlib import Path
+from agentguard.database import connect
 
 
 class ArtifactError(ValueError): pass
@@ -15,7 +16,7 @@ class ArtifactStore:
         self.root = Path(root).resolve(); self.root.mkdir(parents=True, exist_ok=True)
         self.max_bytes = max_bytes
         self.database = self.root / "artifacts.sqlite3"
-        with sqlite3.connect(self.database) as db:
+        with connect(self.database) as db:
             db.execute("""CREATE TABLE IF NOT EXISTS artifacts(
                 artifact_id TEXT PRIMARY KEY, room_id TEXT NOT NULL, job_id TEXT,
                 name TEXT NOT NULL, media_type TEXT NOT NULL, size_bytes INTEGER NOT NULL,
@@ -48,7 +49,7 @@ class ArtifactStore:
             ref = {"artifact_id": artifact_id, "name": Path(name).name or "artifact",
                    "media_type": media_type or "application/octet-stream", "size_bytes": size,
                    "sha256": digest.hexdigest()}
-            with sqlite3.connect(self.database) as db:
+            with connect(self.database) as db:
                 db.execute("INSERT INTO artifacts VALUES(?,?,?,?,?,?,?,?)",
                            (artifact_id, room_id, job_id, ref["name"], ref["media_type"], size,
                             ref["sha256"], str(final.relative_to(self.root))))
@@ -62,7 +63,7 @@ class ArtifactStore:
         return self.store(room_id, name, media_type, io.BytesIO(content), job_id)
 
     def _row(self, room_id: str, artifact_id: str):
-        with sqlite3.connect(self.database) as db:
+        with connect(self.database) as db:
             db.row_factory = sqlite3.Row
             row = db.execute("SELECT * FROM artifacts WHERE room_id=? AND artifact_id=?", (room_id, artifact_id)).fetchone()
         if not row: raise ArtifactError("artifact does not exist in this room")
@@ -79,16 +80,16 @@ class ArtifactStore:
 
     def bind(self, room_id: str, artifact_ids: list[str], job_id: str) -> list[dict]:
         refs=[]
-        with sqlite3.connect(self.database) as db:
+        with connect(self.database) as db:
+            db.row_factory = sqlite3.Row
+            db.execute("BEGIN IMMEDIATE")
             for artifact_id in artifact_ids:
-                row=self._row(room_id, artifact_id)
+                row=db.execute("SELECT * FROM artifacts WHERE room_id=? AND artifact_id=?", (room_id,artifact_id)).fetchone()
+                if row is None: raise ArtifactError("artifact does not exist in this room")
                 if row["job_id"] not in (None, job_id): raise ArtifactError("artifact belongs to another job")
-                old=(self.root / row["storage_path"]).resolve()
-                target=self._directory(room_id,job_id)/artifact_id; target.parent.mkdir(parents=True, exist_ok=True)
-                if self.root not in target.resolve().parents: raise ArtifactError("unsafe artifact target")
-                if old != target: os.replace(old, target)
-                db.execute("UPDATE artifacts SET job_id=?,storage_path=? WHERE artifact_id=?",
-                           (job_id, str(target.relative_to(self.root)), artifact_id))
+                # Blob paths are immutable. Moving files while a database
+                # transaction is open cannot be rolled back if a later bind fails.
+                db.execute("UPDATE artifacts SET job_id=? WHERE artifact_id=?", (job_id,artifact_id))
                 refs.append({key: row[key] for key in ("artifact_id","name","media_type","size_bytes","sha256")})
         return refs
 

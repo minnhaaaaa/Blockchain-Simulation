@@ -26,10 +26,15 @@ def test_real_api_composition_starts_unconfigured_and_closes(tmp_path):
                   "max_schema_nodes": 100, "max_schema_depth": 10},
         "signalling": {"timeout_seconds": 2, "refresh_interval_ms": 1000},
         "providers": [],
+        "auth": {"session_ttl_seconds": 3600},
     }
     composed = compose(config)
     try:
-        status = composed.app.test_client().get("/api/status")
+        client=composed.app.test_client()
+        assert client.get("/api/status").status_code == 401
+        key=(tmp_path/config["application"]["node_id"]/"operator.key").read_text()
+        token=client.post("/api/auth/login",json={"access_key":key}).get_json()["token"]
+        status = client.get("/api/status",headers={"Authorization":f"Bearer {token}"})
         assert status.status_code == 200
         assert status.get_json()["provider_state"] == "unconfigured"
     finally:

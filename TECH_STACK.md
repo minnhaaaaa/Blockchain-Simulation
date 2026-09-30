@@ -18,6 +18,11 @@ All operational values are injected at runtime. The stack must not rely on hardc
 | Frontend | React 19.3 and TypeScript | Typed, component-driven operational interface |
 | Frontend build | Vite React TypeScript template | Fast development server and production bundle |
 | Frontend routing | React Router | URL-addressable application pages |
+| Interface motion | GSAP + `@gsap/react` | Scoped page/hero timelines, cleanup and reduced-motion support |
+| Floating dock | Framer Motion | Supplied proximity/spring dock adapted to semantic links and keyboard focus |
+| Landing geometry | Three.js | Lazy-loaded monochrome cube; no remote assets, disposed on unmount |
+| Agent API | Requests + OpenAI-compatible Chat Completions | Server-only endpoint/model/key config, validated tool calling and actual result feedback |
+| Operator access | Node-local random keys + expiring Bearer sessions | Actual sign-in without seeded accounts or browser-held signing keys |
 | Server-state client | TanStack Query | Polling, request lifecycle, cache invalidation, and stale-state handling |
 | Runtime schema validation | JSON Schema and Ajv | Shared contract validation at the browser boundary |
 | Frontend tests | Vitest, React Testing Library, Playwright | Component behavior and complete browser workflows |
