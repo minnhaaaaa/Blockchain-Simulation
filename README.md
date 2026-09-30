@@ -1,16 +1,14 @@
 # Certa
 
-**A multi-node Proof-of-Stake blockchain simulation, with a permission-controlled AI workspace as its demonstration application.**
+**A multinode Proof of Stake blockchain simulation, with a permission controlled AI workspace as its demonstration application.**
 
 Certa builds on an existing educational blockchain simulator. Its main goals are to correct intentional PoS consensus defects, replace reliance on a predefined bootstrap node with room-based discovery, and make the network observable through a React web interface.
 
 The application layer gives the blockchain real activity to record: users upload files, request work, approve sensitive actions, and inspect signed execution events replicated across nodes. **The AI proposes work; the runtime checks permissions; the blockchain validates and records the shared history.**
 
-Formerly **AgentGuard**. Internal module names and signed protocol identifiers retain that name for compatibility.
-
 ## What is implemented
 
-### Blockchain simulation — the core of the project
+### Blockchain simulation
 
 - Independent local nodes with their own identities, peer connections, pending events and persisted ledgers.
 - Shared PoS rules for block production, incoming-block validation and chain synchronization.
@@ -19,7 +17,7 @@ Formerly **AgentGuard**. Internal module names and signed protocol identifiers r
 - Configurable finality depth, with real empty successor blocks so the last application events can finalize in a quiet room.
 - A verified room manifest anchoring genesis, validator allocations and consensus parameters.
 
-### Room-based signalling
+### Room based signalling
 
 Nodes create or join a network using a room ID. The signalling service maintains room manifests and peer membership, with heartbeats and membership expiry. Nodes then exchange events and blocks directly over peer-to-peer connections.
 
@@ -37,37 +35,6 @@ The signalling server helps with discovery; **it does not choose winning validat
 - Monochrome responsive interface, collapsible dock, GSAP transitions, cursor-responsive Three.js artwork and reduced-motion support.
 
 There are no seeded jobs, fabricated peers or canned model answers in the application. Operational settings come from the operator's configuration; displayed activity comes from the running services. Test fixtures are isolated to verification code.
-
-## Architecture
-
-```mermaid
-flowchart TB
-    UI["React dashboard"] --> API["Authenticated Flask API"]
-    API --> Runtime["Agent runtime and policy checks"]
-    Runtime <-->|"Prompt, proposed calls and permitted results"| Model["Configured AI provider"]
-    Runtime -->|"Allowed or explicitly approved actions"| Tools["Local tools and files"]
-    Tools -->|"Actual execution results"| Runtime
-    Runtime -->|"Signed application events"| Admission
-
-    subgraph Simulation["Core: multi-node blockchain simulation"]
-        Admission["Validate event identity, signature and sequence"] --> Pool["Pending events"]
-        Stake["Genesis-committed validator snapshot"] --> PoS["Shared PoS eligibility rules"]
-        Pool --> Block["Construct and sign candidate block"]
-        PoS --> Block
-        Block --> P2P["Direct P2P event and block exchange"]
-        P2P --> Validation["Each peer independently validates<br/>Hash links, signatures, stake, eligibility and replay rules"]
-        Validation --> Choice["Fork choice and finalized-history protection"]
-        Choice --> Ledger["Per-node ledger and finality tracking"]
-    end
-
-    API -->|"Create or join room"| Signal["Signalling server<br/>Verified manifest and peer registry"]
-    Signal -.->|"Genesis and consensus configuration"| Stake
-    Signal -.->|"Peer addresses"| P2P
-    Ledger --> Projection["Local SQLite dashboard projections"]
-    Projection -->|"Read through API"| UI
-```
-
-The blockchain section represents processing performed independently by participating nodes, not a central block validator. Uploaded file bytes stay local; the ledger carries events, hashes and artifact references rather than distributing all uploaded documents.
 
 ## Consensus and integration fixes
 
@@ -160,9 +127,9 @@ Browser tests use real APIs and peers: upload, approval, hashing, download, deni
 - Model calls run in a synchronous tool loop, with node write commands serialized. There is no durable background queue or cancel button. Provider latency and rate limits can delay a run; the request timeout is not a total job deadline. Inspect an existing task before retrying an interrupted request.
 - Sign-in grants operator control of a node, not a separate multi-user account. Do not expose development servers publicly without TLS, access controls and deployment hardening.
 
-## AI-use disclosure
+## AI use disclosure
 
-AI coding assistance, including **OpenAI Codex**, was used during development for implementation, debugging, test creation, frontend iteration, documentation and demo-script preparation. This repository should not be represented as entirely hand-written without AI assistance. Maintainers remain responsible for understanding, reviewing and explaining the implementation and its limitations; AI assistance and passing tests are not substitutes for an independent security audit.
+AI coding assistance was used during development for implementation, debugging, test creation, frontend iteration and documentation. This repository should not be represented as entirely hand-written without AI assistance. AI assistance and passing tests are not substitutes for an independent security audit.
 
 Separately, Certa uses an operator-configured language model **at runtime** to propose actions and generate answers. Model output is not trusted authorization: the runtime checks tool requests against the job's policy and requires approval where specified. Generated prose can still be inaccurate and should be reviewed.
 
